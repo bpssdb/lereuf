@@ -1,0 +1,199 @@
+# mod_mesures_cat.R: Module Excel refactorisé, UI épurée et sans espace vide
+
+library(shiny)
+library(readxl)
+library(reactable)
+library(openxlsx2)
+library(rhandsontable)
+library(shinycssloaders)
+
+# ============================
+# MODULE UI
+# ============================
+mod_mesures_cat_ui <- function(id) {
+  ns <- NS(id)
+  tagList(
+    # CSS pour supprimer marges par défaut
+    tags$style(HTML(paste0(
+      "#", ns("upload_file"), " {margin-bottom:0!important; padding-bottom:0!important;}
+",
+      "#", ns("selected_sheet"), " {margin-bottom:0!important; padding-bottom:0!important;}
+",
+      "#", ns("table_container"), " {margin-top:0!important; padding-top:0!important;}
+",
+      "#", ns("buttons_container"), " {margin-top:0!important; padding-top:0!important;}"
+    ))),
+    # 1️⃣ Upload + Sélecteur côte à côte
+    fluidRow(style = "margin-bottom:0; padding-bottom:0;",
+             column(6,
+                    fileInput(ns("upload_file"),
+                              "📂 Charger un fichier Excel (.xlsx)",
+                              accept = ".xlsx",
+                              buttonLabel = "Parcourir…",
+                              placeholder = "Aucun fichier sélectionné",
+                              width = "100%"
+                    )
+             ),
+             column(6,
+                    uiOutput(ns("sheet_selector"))
+             )
+    ),
+    # 2️⃣ Tableau conditionnel
+    uiOutput(ns("table_container")),
+    # 3️⃣ Boutons conditionnels
+    uiOutput(ns("buttons_container"))
+  )
+}
+
+# ============================
+# MODULE SERVER
+# ============================
+mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
+  moduleServer(id, function(input, output, session) {
+    ns <- session$ns
+    
+    # Réactifs
+    rv_path   <- reactiveVal(NULL)
+    rv_sheets <- reactiveVal(NULL)
+    rv_table  <- reactiveVal(NULL)
+    
+    # Charger le fichier et lister les feuilles
+    observeEvent(input$upload_file, {
+      req(input$upload_file)
+      path <- input$upload_file$datapath
+      if (tools::file_ext(input$upload_file$name) != "xlsx") {
+        showNotification("Veuillez charger un fichier .xlsx", type = "error")
+        return()
+      }
+      rv_path(path)
+      sheets <- tryCatch(excel_sheets(path), error = function(e) NULL)
+      rv_sheets(sheets)
+      # Sélection automatique de la première feuille
+      updateSelectInput(session, ns("selected_sheet"), choices = sheets, selected = sheets[1])
+    })
+    
+    # Rendu du sélecteur de feuilles
+    output$sheet_selector <- renderUI({
+      req(rv_sheets())
+      selectInput(ns("selected_sheet"),
+                  "🗂️ Choisir une feuille",
+                  choices = rv_sheets(),
+                  width = "100%"
+      )
+    })
+    
+    # Lecture et stockage de la feuille
+    observeEvent(input$selected_sheet, {
+      req(rv_path(), input$selected_sheet)
+      df <- tryCatch(
+        read_excel(rv_path(), sheet = input$selected_sheet, skip = 4),
+        error = function(e) NULL
+      )
+      req(df)
+      rv_table(as.data.frame(df))
+      # Callback résumé d'analyse
+      if (!is.null(on_analysis_summary)) {
+        summ <- tryCatch(
+          analyser_feuille_excel(df, sheet_name = input$selected_sheet),
+          error = function(e) NULL
+        )
+        if (!is.null(summ)) on_analysis_summary(summ)
+      }
+    })
+    
+    # Container du tableau avec spinner
+    output$table_container <- renderUI({
+      req(rv_table())
+      fluidRow(style = "margin-top:0;",
+               column(12,
+                      shinycssloaders::withSpinner(
+                        reactableOutput(ns("reactable_table")),
+                        type = 4, color = "#0055A4"
+                      )
+               )
+      )
+    })
+    
+    # Rendu du tableau Reactable
+    output$reactable_table <- renderReactable({
+      req(rv_table())
+      reactable(
+        rv_table(),
+        searchable = TRUE,
+        resizable  = TRUE,
+        highlight  = TRUE,
+        bordered   = TRUE,
+        striped    = TRUE,
+        pagination = FALSE,
+        defaultColDef = colDef(
+          minWidth = 100,
+          style    = list(whiteSpace = "pre-wrap", overflow = "hidden", textOverflow = "ellipsis")
+        ),
+        style = list(maxHeight = "70vh", overflowY = "auto")
+      )
+    })
+    
+    # Container des boutons
+    output$buttons_container <- renderUI({
+      req(rv_table())
+      fluidRow(style = "margin-top:5px;",
+               column(12,
+                      div(class = "d-flex",
+                          actionButton(ns("open_full_editor"),
+                                       "🖋️ Modifier la feuille",
+                                       class = "btn btn-secondary mr-2"),
+                          downloadButton(ns("download_table"),
+                                         "💾 Exporter le tableau modifié",
+                                         class = "btn btn-success")
+                      )
+               )
+      )
+    })
+    
+    # Édition plein écran
+    observeEvent(input$open_full_editor, {
+      req(rv_table())
+      showModal(modalDialog(
+        title     = "🖋️ Édition plein écran",
+        size      = "l",
+        easyClose = TRUE,
+        footer    = tagList(
+          modalButton("❌ Fermer"),
+          actionButton(ns("save_edits"), "💾 Enregistrer", class = "btn btn-primary")
+        ),
+        rHandsontableOutput(ns("hot_table"), height = "70vh"),
+        tags$script(HTML("$('.modal-dialog').css('width','95vw')"))
+      ))
+    })
+    
+    output$hot_table <- renderRHandsontable({
+      req(rv_table())
+      rhandsontable(rv_table(), useTypes = TRUE, stretchH = "all") %>%
+        hot_cols(colWidths = rep(120, ncol(rv_table())))
+    })
+    
+    observeEvent(input$save_edits, {
+      req(input$hot_table)
+      rv_table(hot_to_r(input$hot_table))
+      removeModal()
+    })
+    
+    # Exportation Excel
+    output$download_table <- downloadHandler(
+      filename = function() paste0("mesures_cat_", Sys.Date(), ".xlsx"),
+      content  = function(file) {
+        wb <- wb_workbook()
+        wb_add_worksheet(wb, "Mesures")
+        wb_add_data(wb, sheet = 1, x = rv_table())
+        wb_save(wb, file)
+        showNotification("✅ Fichier exporté !", type = "message")
+      }
+    )
+    
+    # Stockage global
+    observeEvent(rv_table(), {
+      rv$excel_data  <- rv_table()
+      rv$excel_sheet <- input$selected_sheet
+    })
+  })
+}
