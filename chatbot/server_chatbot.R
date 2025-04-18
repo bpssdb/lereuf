@@ -43,11 +43,18 @@ server <- function(input, output, session) {
                         rv, chat_history,
                         dernier_fichier_contenu,
                         donnees_extraites)
-
+  mod_videoTranscriberUI("vt1")
+  mod_videoTranscriberServer(
+    "vt1",
+    trigger = reactive(input$show_video_modal)
+  )
+  
+  
   # ENVOI UTILISATEUR
   observeEvent(input$send_btn, {
     handle_user_input(input, session, chat_history, typing, bpss_prompt_active)
   })
+  
   
   # UPLOAD FICHIER
   observeEvent(input$file_input, {
@@ -73,7 +80,7 @@ server <- function(input, output, session) {
                           footer = modalButton("Fermer"), mod_outil_bpss_ui("bpss1")))
   })
   
-  # IMPORT JSON
+   # IMPORT JSON
   observeEvent(rv$imported_json, {
     req(rv$imported_json)
     showNotification("📂 JSON importé avec succès !", type = "message")

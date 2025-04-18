@@ -11,6 +11,8 @@ library(mime)
 library(reticulate)
 library(callr)
 library(reactable)
+library(bslib)
+library(shinycssloaders)
 
 source("~/work/budgibot/chatbot/helpers/api_mistral.R")
 source("~/work/budgibot/chatbot/helpers/llm_utils.R")
@@ -25,6 +27,7 @@ source("~/work/budgibot/chatbot/modules/mod_mesures_cat_combo.R")
 source("~/work/budgibot/chatbot/modules/mod_outil_bpss.R")
 source("~/work/budgibot/chatbot/modules/mod_json_helper.R")
 source("~/work/budgibot/chatbot/modules/autocompletion.R")
+source("~/work/budgibot/chatbot/modules/video_transcription_module.R")
 
 
 

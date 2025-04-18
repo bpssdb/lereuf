@@ -9,12 +9,12 @@ library(purrr)
 map_budget_entries <- function(entries_df, tags_json, model = NULL) {
   if (nrow(entries_df) == 0 || length(tags_json) == 0) return(NULL)
   
-  # 1️⃣ Texte des entrées budgétaires
+  # 1 Texte des entrées budgétaires
   entries_txt <- apply(entries_df, 1, function(row) {
     glue::glue("- Axe: '{row[['Axe']]}', Description: '{row[['Description']]}', Montant: {row[['Montant']]}")
   }) %>% paste(collapse = "\n")
   
-  # 2️⃣ Texte des tags disponibles
+  # 2 Texte des tags disponibles
   tags_txt <- seq_along(tags_json) %>%
     purrr::map_chr(function(i) {
       tag <- tags_json[[i]]
@@ -22,7 +22,7 @@ map_budget_entries <- function(entries_df, tags_json, model = NULL) {
       glue::glue("{i}) Cellule {tag$cell_address} – labels : {labs}")
     }) %>% paste(collapse = "\n")
   
-  # 3️⃣ Prompt système et utilisateur
+  # 3️ Prompt système et utilisateur
   system_prompt <- paste(
     "Tu es un assistant budgétaire expert.",
     "Pour chaque entrée budgétaire, choisis la meilleure cellule Excel parmi la liste.",
@@ -37,7 +37,7 @@ map_budget_entries <- function(entries_df, tags_json, model = NULL) {
     "\n\nTags disponibles :\n", tags_txt
   )
   
-  # 4️⃣ Appel LLM
+  # 4️ Appel LLM
   msgs <- list(
     list(role = "system", content = system_prompt),
     list(role = "user",   content = user_prompt)
@@ -47,7 +47,7 @@ map_budget_entries <- function(entries_df, tags_json, model = NULL) {
   raw <- llm_chat(msgs)
   if (is.null(raw)) return(NULL)
   
-  # 5️⃣ Extraction et parsing du JSON
+  # 5️ Extraction et parsing du JSON
   blob <- extract_json_array(raw)
   if (is.null(blob)) {
     warning("Aucun JSON détecté dans la réponse LLM.")

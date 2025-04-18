@@ -1,9 +1,3 @@
-# ui_chatbotv2.R: Affichage final avec quick replies, couleurs et scroll corrigés
-library(shiny)
-library(shinyjs)
-library(bslib)
-library(shinycssloaders)
-
 # Thème moderne Flatly
 theme <- bs_theme(
   version    = 5,
@@ -157,7 +151,7 @@ ui <- fluidPage(
            tags$h3("Outils Budgétaires"),
            div(class = "mb-3 d-flex",
                actionButton("toggle_bpss_ui", "BPSS Excel", class = "btn btn-outline-primary flex-fill me-2"),
-               actionButton("show_budget_modal", "Voir Budget", class = "btn btn-outline-primary flex-fill")
+               actionButton("show_video_modal", "Vidéo transcription", class = "btn btn-outline-primary flex-fill")
            ),
            tags$div(class = "accordion", id = "modulesAccordion",
                     # Mesures Catégorie ouvertes par défaut
