@@ -43,7 +43,6 @@ server <- function(input, output, session) {
                         rv, chat_history,
                         dernier_fichier_contenu,
                         donnees_extraites)
-  mod_videoTranscriberUI("vt1")
   mod_videoTranscriberServer(
     "vt1",
     trigger = reactive(input$show_video_modal)
