@@ -14,20 +14,20 @@ library(reactable)
 library(bslib)
 library(shinycssloaders)
 
-source("~/work/budgibot/chatbot/helpers/api_mistral.R")
-source("~/work/budgibot/chatbot/helpers/llm_utils.R")
-source("~/work/budgibot/chatbot/helpers/ui_helpers.R")
-source("~/work/budgibot/chatbot/helpers/server_utils.R")
-source("~/work/budgibot/chatbot/helpers/excel_analysis.R")
-source("~/work/budgibot/chatbot/helpers/autocompletion_helper.R")
-source("~/work/budgibot/chatbot/helpers/map_budget_entries.R")  # assume que vous y avez défini map_budget_entries()
+source("~/work/lereuf/chatbot/helpers/api_mistral.R")
+source("~/work/lereuf/chatbot/helpers/llm_utils.R")
+source("~/work/lereuf/chatbot/helpers/ui_helpers.R")
+source("~/work/lereuf/chatbot/helpers/server_utils.R")
+source("~/work/lereuf/chatbot/helpers/excel_analysis.R")
+source("~/work/lereuf/chatbot/helpers/autocompletion_helper.R")
+source("~/work/lereuf/chatbot/helpers/map_budget_entries.R")  # assume que vous y avez défini map_budget_entries()
 
 
-source("~/work/budgibot/chatbot/modules/mod_mesures_cat_combo.R")
-source("~/work/budgibot/chatbot/modules/mod_outil_bpss.R")
-source("~/work/budgibot/chatbot/modules/mod_json_helper.R")
-source("~/work/budgibot/chatbot/modules/autocompletion.R")
-source("~/work/budgibot/chatbot/modules/video_transcription_module.R")
+source("~/work/lereuf/chatbot/modules/mod_mesures_cat_combo.R")
+source("~/work/lereuf/chatbot/modules/mod_outil_bpss.R")
+source("~/work/lereuf/chatbot/modules/mod_json_helper.R")
+source("~/work/lereuf/chatbot/modules/autocompletion.R")
+source("~/work/lereuf/chatbot/modules/video_transcription_module.R")
 
 
 

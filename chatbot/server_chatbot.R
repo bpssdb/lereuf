@@ -30,6 +30,13 @@ server <- function(input, output, session) {
     )
   )
   
+  autoInvalidate <- reactiveTimer(10000)  # toutes les 10 secondes
+  
+  observe({
+    autoInvalidate()
+    # juste pour maintenir la connexion
+  })
+  
   # MODULES EXISTANTS
   mod_mesures_cat_server("cat1", rv, on_analysis_summary = function(summary) {
     msgs <- chat_history()

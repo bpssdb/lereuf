@@ -44,30 +44,30 @@ mod_videoTranscriberServer <- function(id, trigger) {
             verbatimTextOutput(ns("log"))
           ),
           selectInput(
-            ns("whisper_model"),
-            "Modèle Whisper",
-            choices = c("tiny", "base", "small", "medium", "large"),
+            ns("whisper_model"), 
+            "Modèle Whisper", 
+            choices = c("tiny", "base", "small", "medium", "large"), 
             selected = "base"
           ),
           textInput(
-            ns("page_url"),
-            "URL page/flux (.m3u8/.mp4)",
+            ns("page_url"), 
+            "URL page/flux (.m3u8/.mp4)", 
             placeholder = "https://..."
           ),
           actionButton(
-            ns("detect_btn"),
-            "Détecter les flux de la page",
+            ns("detect_btn"), 
+            "Détecter les flux de la page", 
             class = "btn btn-outline-primary mb-2"
           ),
           uiOutput(ns("detected_ui")),
           fileInput(
-            ns("video_file"),
-            "Ou chargez un fichier local",
+            ns("video_file"), 
+            "Ou chargez un fichier local", 
             accept = c("video/*", "audio/*")
           ),
           actionButton(
-            ns("download_btn"),
-            "Télécharger l'audio",
+            ns("download_btn"), 
+            "Télécharger l'audio", 
             class = "btn btn-info mb-2"
           ),
           uiOutput(ns("audio_preview")),
@@ -156,36 +156,46 @@ mod_videoTranscriberServer <- function(id, trigger) {
       status("Téléchargement...")
       
       dest <- tempfile(fileext = ".mp3")
-      tryCatch({
-        withProgress(message = "Téléchargement audio", value = 0, {
-          cmd <- sprintf("ffmpeg -y -i '%s' -vn -q:a 0 -map a '%s'", url, dest)
-          system(cmd, wait = TRUE)
-          incProgress(1)
-        })
+      dir.create("www", showWarnings = FALSE)
+      
+      future({
+        cmd <- sprintf(
+          "ffmpeg -y -i '%s' -map 0:a:0 -vn -q:a 0 -acodec libmp3lame '%s'",
+          url,
+          dest
+        )
+        system(cmd, wait = TRUE)
+        dest  # on retourne le chemin vers le fichier téléchargé
+      }) %...>% {
+        file_path <- .
         
-        if (file.exists(dest) && file.info(dest)$size > 0) {
-          downloaded_file(dest)
+        if (file.exists(file_path) && file.info(file_path)$size > 0) {
+          downloaded_file(file_path)
           log_append("[✅] Audio téléchargé.")
           status("Audio prêt.")
           
-          # Prévisualisation audio
-          encoded_audio <- base64enc::dataURI(file = dest, mime = "audio/mp3")
+          # Copie du fichier dans www/ avec un nom unique
+          www_name <- paste0("audio_", format(Sys.time(), "%Y%m%d%H%M%S"), ".mp3")
+          www_path <- file.path("www", www_name)
+          file.copy(file_path, www_path, overwrite = TRUE)
+          
           output$audio_preview <- renderUI({
             tags$audio(
-              src = encoded_audio,
+              src = www_name,
               type = "audio/mp3",
               controls = TRUE,
               style = "width:100%;"
             )
           })
         } else {
-          log_error("Échec téléchargement.")
+          log_error("Échec du téléchargement.")
           status("Erreur de téléchargement.")
         }
-      }, error = function(e) {
-        log_error(paste0("Erreur lors du téléchargement : ", e$message))
+      } %...!% {
+        error <- .
+        log_error(paste0("Erreur lors du téléchargement : ", error$message))
         status("Erreur de téléchargement.")
-      })
+      }
     })
     
     observeEvent(input$submit, {
@@ -215,100 +225,57 @@ mod_videoTranscriberServer <- function(id, trigger) {
         log_append(paste0("[🔪] ", length(segs), " segments créés : ", paste(basename(segs), collapse = ", ")))
         
         # Chargement du modèle faster-whisper
-        fw <- import("faster_whisper")
-        model <- tryCatch({
-          fw$WhisperModel(input$whisper_model, device = "cpu", compute_type = "float32")
+        status("Transcription via WhisperX en cours...")
+        
+        # 📁 Création dossier de sortie pour whisperx
+        output_dir <- tempfile("whisperx_")
+        dir.create(output_dir, recursive = TRUE)
+        
+        # 📦 Lancement de whisperx en CLI
+        cmd <- sprintf(
+          "whisperx %s --language French --output_dir %s --model %s --output_format txt --diarize --device cpu",
+          shQuote(downloaded_file()), 
+          shQuote(output_dir),
+          input$whisper_model
+        )
+        
+        log_append(paste0("[🐍] Exécution WhisperX : ", cmd))
+        
+        tryCatch({
+          output <- system(cmd, intern = TRUE)
+          log_append(paste(output, collapse = "\n"))
         }, error = function(e) {
-          log_error(paste0("Erreur chargement modèle Faster-Whisper : ", e$message))
-          NULL
+          log_error(paste0("Erreur WhisperX : ", e$message))
+          status("Erreur de transcription.")
+          updateActionButton(session, "submit", label = "Transcrire", disabled = FALSE)
+          return()
         })
         
-        if (is.null(model)) {
-          status("Erreur de chargement du modèle.")
+        # 📄 Vérification + attente de génération du fichier texte
+        txt_file <- list.files(output_dir, pattern = "\\.txt$", full.names = TRUE)
+        
+        i <- 0
+        while (length(txt_file) == 0 && i < 10) {
+          Sys.sleep(0.5)  # Attente active
+          i <- i + 1
+          txt_file <- list.files(output_dir, pattern = "\\.txt$", full.names = TRUE)
+        }
+        
+        if (length(txt_file) == 1) {
+          log_append(paste("📄 Fichier texte détecté après", i * 0.5, "s :", basename(txt_file)))
+          content <- readLines(txt_file, encoding = "UTF-8")
+          full_transcript <- paste(content, collapse = "\n")
+          raw_text(full_transcript)
+          transcript_text(full_transcript)
+          log_append("[✅] Transcription lue avec succès.")
+        } else {
+          log_append("[❌] Fichier texte introuvable même après attente.")
+          status("Erreur : aucun fichier généré.")
           return()
         }
         
-        status("Transcription en cours...")
-        df <- data.frame(Segment = integer(), Duration = numeric())
-        full_transcript <- ""
         
-        withProgress(message = "Segments", value = 0, {
-          for (i in seq_along(segs)) {
-            incProgress(1 / length(segs), detail = paste0(i, "/", length(segs)))
-            t0 <- Sys.time()
-            log_append(paste0("[🧠] Segment ", i, " / ", length(segs)))
-            
-            res <- tryCatch({
-              segments <- model$transcribe(segs[i])
-              log_append(paste0("[🔍] Structure de retour analysée..."))
-              
-              result_text <- ""
-              
-              # Méthode universelle pour toutes les versions de faster-whisper
-              if (reticulate::py_has_attr(segments, "__iter__")) {
-                log_append("[🔍] Itérable Python détecté")
-                
-                # Conversion en liste R
-                segments_list <- reticulate::iterate(segments)
-                
-                for (segment in segments_list) {
-                  if (reticulate::py_has_attr(segment, "text")) {
-                    segment_text <- segment$text
-                    result_text <- paste0(result_text, segment_text)
-                    log_append(paste0("[📝] Texte extrait (", nchar(segment_text), " caractères)"))
-                  } else {
-                    log_append("[⚠️] Segment sans attribut 'text'")
-                  }
-                }
-              } else {
-                log_append("[❌] Format non itérable détecté")
-              }
-              
-              if (nchar(result_text) == 0) {
-                log_append("[🔧] Tentative alternative d'extraction...")
-                try({
-                  # Fallback pour certaines versions
-                  segments_r <- reticulate::py_to_r(segments)
-                  if (is.list(segments_r)) {
-                    for (item in segments_r) {
-                      if (is.list(item) && !is.null(item$text)) {
-                        result_text <- paste0(result_text, item$text)
-                      }
-                    }
-                  }
-                }, silent = TRUE)
-              }
-              
-              if (nchar(result_text) == 0) {
-                log_append("[❌] Diagnostic complet:")
-                log_append(paste0("- Type retour: ", class(segments)))
-                log_append(paste0("- Méthodes disponibles: ", paste(reticulate::py_list_attributes(segments), collapse = ", ")))
-                log_append("- Essayez: pip install --upgrade faster-whisper")
-              }
-              
-              result_text
-            }, error = function(e) {
-              log_append(paste0("[❌] Erreur critique: ", e$message))
-              NULL
-            })
-            
-            dt <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
-            df <- rbind(df, data.frame(Segment = i, Duration = dt))
-            
-            if (!is.null(res) && nchar(res) > 0) {
-              full_transcript <- paste0(full_transcript, res, "\n")
-              log_append(paste0("[✅] Segment ", i, " terminé en ", round(dt, 1), "s."))
-            } else {
-              log_append(paste0("[⚠️] Aucun texte extrait pour le segment ", i))
-            }
-          }
-        })
-        
-        segment_times(df)
-        raw_text(full_transcript)
-        transcript_text(full_transcript)
-        log_append(paste0("[⏱️] Temps total de transcription : ", round(sum(df$Duration), 1), "s."))
-        
+        # ✅ Affichage de fin
         removeModal()
         showModal(modalDialog(
           title = "Transcription terminée",
@@ -323,15 +290,10 @@ mod_videoTranscriberServer <- function(id, trigger) {
           ),
           footer = modalButton("Fermer")
         ))
-        
-        
-      }, error = function(e) {
-        log_error(paste0("Erreur lors de la transcription : ", e$message))
-        status("Erreur de transcription.")
-      })
-      
-      updateActionButton(session, "submit", label = "Transcrire", disabled = FALSE)
+        updateActionButton(session, "submit", label = "Transcrire", disabled = FALSE)
+      })  
     })
+    
     
     output$raw_transcript <- renderText({
       txt <- raw_text()
@@ -387,13 +349,4 @@ mod_videoTranscriberServer <- function(id, trigger) {
       if (nzchar(txt)) txt else "[⚠️] Aucun contenu généré."
     })
     
-    output$download_summary <- downloadHandler(
-      filename = function() {
-        paste0("compte_rendu_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt")
-      },
-      content = function(file) {
-        writeLines(transcript_text(), file)
-      }
-    )
-  })
-}
+    output$down

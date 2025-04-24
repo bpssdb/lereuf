@@ -1,5 +1,6 @@
 # dependencies.R
-
+#pip install whisperx
+#libpoppler-cpp-dev, python, ffmpeg
 # Function to install missing R packages
 install_if_missing <- function(pkg, github = NULL) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
@@ -30,7 +31,11 @@ required_packages <- c(
   "promises",
   "future",
   "mime",
-  "reticulate"
+  "reticulate", 
+  "rhandsontable", 
+  "reactable", 
+  "shinycssloaders", 
+  "openxlsx2"
 )
 
 # Install missing R packages
