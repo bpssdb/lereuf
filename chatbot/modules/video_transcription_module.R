@@ -349,4 +349,22 @@ mod_videoTranscriberServer <- function(id, trigger) {
       if (nzchar(txt)) txt else "[⚠️] Aucun contenu généré."
     })
     
-    output$down
+    output$download_summary <- downloadHandler(
+      filename = function() {
+        paste0("compte_rendu_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt")
+      },
+      content = function(file) {
+        writeLines(transcript_text(), file)
+      }
+    )
+    
+    output$download_raw <- downloadHandler(
+      filename = function() {
+        paste0("transcription_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt")
+      },
+      content = function(file) {
+        writeLines(raw_text(), file)
+      }
+    )
+  })
+}

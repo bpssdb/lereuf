@@ -112,9 +112,9 @@ server <- function(input, output, session) {
         if(r <= nrow(df_char) && c <= ncol(df_char)) {
           val <- as.character(df_char[r, c])
           if(is.na(val)) { val <- "" }
-          if(nzchar(val) && !startsWith(val, "🏷️")) {
+          #if(nzchar(val) && !startsWith(val, "🏷️")) {
             df_char[r, c] <- paste0("🏷️ ", val)
-          }
+          #}
         }
       }
     }
@@ -260,8 +260,9 @@ server <- function(input, output, session) {
         lbl <- as.character(df[cell$row, cell$col])
         if(!is.na(lbl) && nzchar(lbl)) {
           manual_label_union <- union(manual_label_union, lbl)
-          manual_address_union <- union(manual_address_union, paste0(num_to_excel_col(cell$col), cell$row))
         }
+        manual_address_union <- union(manual_address_union, paste0(num_to_excel_col(cell$col), cell$row))
+        
       }
       print(paste("Union des headers manuels :", paste(manual_label_union, collapse = "; ")))
     }
@@ -276,16 +277,18 @@ server <- function(input, output, session) {
           lbl <- as.character(df[header_row_index, c])
           if(!is.na(lbl) && nzchar(lbl)) {
             auto_labels <- c(auto_labels, lbl)
-            header_cells <- c(header_cells, paste0(num_to_excel_col(c), header_row_index))
           }
+          header_cells <- c(header_cells, paste0(num_to_excel_col(c), header_row_index))
+          
         }
         # Auto-label issu de la colonne d'en-tête
         if(min(rv$current_cols) > 1 && header_col_index <= ncol(df)) {
           lbl <- as.character(df[r, header_col_index])
           if(!is.na(lbl) && nzchar(lbl)) {
             auto_labels <- c(auto_labels, lbl)
-            header_cells <- c(header_cells, paste0(num_to_excel_col(header_col_index), r))
           }
+          header_cells <- c(header_cells, paste0(num_to_excel_col(header_col_index), r))
+          
         }
         # Fusion des labels : union des auto-labels et des headers manuels
         final_labels <- union(auto_labels, manual_label_union)
