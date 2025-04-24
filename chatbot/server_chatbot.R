@@ -44,7 +44,7 @@ server <- function(input, output, session) {
     chat_history(msgs)
     session$sendCustomMessage("scrollToBottom", list())
   })
-  mod_outil_bpss_server("bpss1")
+  mod_outil_bpss_server("bpss1", rv)
   mod_json_helper_server("json_helper", rv)
   setupBudgetExtraction(input, output, session,
                         rv, chat_history,

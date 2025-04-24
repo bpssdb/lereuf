@@ -56,6 +56,7 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
     rv_path   <- reactiveVal(NULL)
     rv_sheets <- reactiveVal(NULL)
     rv_table  <- reactiveVal(NULL)
+    rv_excel <- reactiveVal(NULL)
     
     # Charger le fichier et lister les feuilles
     observeEvent(input$upload_file, {
@@ -116,9 +117,16 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
     
     # Rendu du tableau Reactable
     output$reactable_table <- renderReactable({
-      req(rv_table())
+      df <- rv_table()
+      
+      if (is.null(df) || !is.data.frame(df) || ncol(df) == 0 || 
+          is.null(names(df)) || any(is.na(names(df))) || any(names(df) == "") || 
+          all(sapply(df, function(col) all(is.na(col))))) {
+        return(reactable(data.frame(Message = "📭 Aucune donnée à afficher"), bordered = TRUE))
+      }
+      
       reactable(
-        rv_table(),
+        df,
         searchable = TRUE,
         resizable  = TRUE,
         highlight  = TRUE,
@@ -132,6 +140,9 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
         style = list(maxHeight = "70vh", overflowY = "auto")
       )
     })
+    
+    
+
     
     # Container des boutons
     output$buttons_container <- renderUI({
@@ -195,5 +206,28 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       rv$excel_data  <- rv_table()
       rv$excel_sheet <- input$selected_sheet
     })
+    
+    observeEvent(rv_path(), {
+      req(rv_path())
+      wb <- tryCatch(openxlsx2::wb_load(rv_path()), error = function(e) NULL)
+      if (inherits(wb, "wbWorkbook")) {
+        rv_excel(wb)         # Stockage local dans le module si tu veux y accéder ailleurs
+        rv$fichier_excel <- wb  # Mise à jour du global pour le reste de l'app
+      } else {
+        showNotification("❌ Le fichier Excel n'a pas pu être chargé.", type = "error")
+      }
+    })
+    
+    observeEvent(rv$excel_updated, {
+      # Par exemple : recharger la feuille sélectionnée si besoin
+      wb <- rv$fichier_excel
+      sheet <- rv$excel_sheet
+      if (!is.null(wb) && sheet %in% wb_get_sheet_names(wb)) {
+        df <- tryCatch(wb_read(wb, sheet), error = function(e) NULL)
+        if (!is.null(df)) rv_table(as.data.frame(df))
+      }
+    })
+    
+    
   })
 }
