@@ -48,120 +48,128 @@ mod_mesures_cat_ui <- function(id) {
 # ============================
 # MODULE SERVER
 # ============================
+
 mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Réactifs
-    rv_path   <- reactiveVal(NULL)
-    rv_sheets <- reactiveVal(NULL)
-    rv_table  <- reactiveVal(NULL)
-    rv_excel <- reactiveVal(NULL)
+    # === Réactifs internes ===
+    rv_path     <- reactiveVal(NULL)
+    rv_excel    <- reactiveVal(NULL)
+    rv_sheets   <- reactiveVal(NULL)
+    rv_table    <- reactiveVal(NULL)
+    rv_selected <- reactiveVal(NULL)
     
-    # Charger le fichier et lister les feuilles
+    # === Chargement initial du fichier Excel ===
     observeEvent(input$upload_file, {
       req(input$upload_file)
       path <- input$upload_file$datapath
-      if (tools::file_ext(input$upload_file$name) != "xlsx") {
-        showNotification("Veuillez charger un fichier .xlsx", type = "error")
+      ext  <- tools::file_ext(input$upload_file$name)
+      
+      if (ext != "xlsx") {
+        showNotification("❌ Veuillez charger un fichier Excel (.xlsx)", type = "error")
         return()
       }
-      rv_path(path)
-      sheets <- tryCatch(excel_sheets(path), error = function(e) NULL)
-      rv_sheets(sheets)
-      # Sélection automatique de la première feuille
-      updateSelectInput(session, ns("selected_sheet"), choices = sheets, selected = sheets[1])
+      
+      wb <- tryCatch(openxlsx2::wb_load(path), error = function(e) NULL)
+      if (inherits(wb, "wbWorkbook")) {
+        rv_path(path)
+        rv_excel(wb)
+        rv$fichier_excel <- wb
+        
+        sheets <- tryCatch(openxlsx2::wb_get_sheet_names(wb), error = function(e) NULL)
+        rv_sheets(sheets)
+        updateSelectInput(session, ns("selected_sheet"), choices = sheets, selected = sheets[1])
+      } else {
+        showNotification("❌ Échec du chargement du fichier.", type = "error")
+      }
     })
     
-    # Rendu du sélecteur de feuilles
+    # === Rendu du sélecteur de feuilles ===
     output$sheet_selector <- renderUI({
       req(rv_sheets())
-      selectInput(ns("selected_sheet"),
-                  "🗂️ Choisir une feuille",
-                  choices = rv_sheets(),
-                  width = "100%"
-      )
+      selectInput(ns("selected_sheet"), "🗂️ Choisir une feuille", choices = rv_sheets(), width = "100%")
     })
     
-    # Lecture et stockage de la feuille
+    # === Lecture de la feuille sélectionnée ===
     observeEvent(input$selected_sheet, {
-      req(rv_path(), input$selected_sheet)
+      req(rv_excel(), input$selected_sheet)
       df <- tryCatch(
-        read_excel(rv_path(), sheet = input$selected_sheet, skip = 4),
-        error = function(e) NULL
+        wb_read(rv_excel(), sheet = input$selected_sheet, col_names = TRUE),
+        error = function(e) {
+          showNotification(paste("❌ Erreur lecture feuille :", e$message), type = "error")
+          NULL
+        }
       )
       req(df)
+      rv_selected(input$selected_sheet)
       rv_table(as.data.frame(df))
-      # Callback résumé d'analyse
-      if (!is.null(on_analysis_summary)) {
-        summ <- tryCatch(
-          analyser_feuille_excel(df, sheet_name = input$selected_sheet),
-          error = function(e) NULL
-        )
-        if (!is.null(summ)) on_analysis_summary(summ)
+      rv$excel_data  <- df
+      rv$excel_sheet <- input$selected_sheet
+    })
+    
+    # === Recharge forcée si excel modifié ailleurs ===
+    observeEvent(rv$excel_updated, {
+      wb <- rv$fichier_excel
+      req(inherits(wb, "wbWorkbook"))
+      
+      rv_excel(wb)
+      feuilles <- tryCatch(openxlsx2::wb_get_sheet_names(wb), error = function(e) NULL)
+      rv_sheets(feuilles)
+      
+      sheet <- rv_selected()
+      if (!is.null(sheet) && sheet %in% feuilles) {
+        df <- tryCatch(wb_read(wb, sheet = sheet, col_names = TRUE), error = function(e) NULL)
+        if (!is.null(df)) rv_table(as.data.frame(df))
       }
     })
     
-    # Container du tableau avec spinner
+    # === Table UI ===
     output$table_container <- renderUI({
       req(rv_table())
-      fluidRow(style = "margin-top:0;",
-               column(12,
-                      shinycssloaders::withSpinner(
-                        reactableOutput(ns("reactable_table")),
-                        type = 4, color = "#0055A4"
-                      )
+      fluidRow(
+        column(12,
+               shinycssloaders::withSpinner(
+                 reactableOutput(ns("reactable_table")),
+                 type = 4, color = "#0055A4"
                )
+        )
       )
     })
     
-    # Rendu du tableau Reactable
     output$reactable_table <- renderReactable({
       df <- rv_table()
-      
-      if (is.null(df) || !is.data.frame(df) || ncol(df) == 0 || 
-          is.null(names(df)) || any(is.na(names(df))) || any(names(df) == "") || 
-          all(sapply(df, function(col) all(is.na(col))))) {
-        return(reactable(data.frame(Message = "📭 Aucune donnée à afficher"), bordered = TRUE))
+      if (is.null(df) || !is.data.frame(df)) {
+        return(reactable(data.frame(Message = "📭 Aucune donnée à afficher ouin"), bordered = TRUE))
       }
+      
+      if (is.null(names(df)) || any(is.na(names(df))) || any(names(df) == "")) {
+        names(df) <- paste0("Colonne_", seq_len(ncol(df)))
+      }      
+      
       
       reactable(
         df,
-        searchable = TRUE,
-        resizable  = TRUE,
-        highlight  = TRUE,
-        bordered   = TRUE,
-        striped    = TRUE,
-        pagination = FALSE,
-        defaultColDef = colDef(
-          minWidth = 100,
-          style    = list(whiteSpace = "pre-wrap", overflow = "hidden", textOverflow = "ellipsis")
-        ),
+        searchable = TRUE, resizable = TRUE, highlight = TRUE, bordered = TRUE,
+        striped = TRUE, pagination = FALSE,
+        defaultColDef = colDef(minWidth = 100, style = list(whiteSpace = "pre-wrap")),
         style = list(maxHeight = "70vh", overflowY = "auto")
       )
     })
     
-    
-
-    
-    # Container des boutons
+    # === Boutons ===
     output$buttons_container <- renderUI({
       req(rv_table())
-      fluidRow(style = "margin-top:5px;",
-               column(12,
-                      div(class = "d-flex",
-                          actionButton(ns("open_full_editor"),
-                                       "🖋️ Modifier la feuille",
-                                       class = "btn btn-secondary mr-2"),
-                          downloadButton(ns("download_table"),
-                                         "💾 Exporter le tableau modifié",
-                                         class = "btn btn-success")
-                      )
+      fluidRow(
+        column(12,
+               div(class = "d-flex",
+                   actionButton(ns("open_full_editor"), "🖋️ Modifier la feuille", class = "btn btn-secondary mr-2"),
+                   downloadButton(ns("download_table"), "💾 Exporter le tableau", class = "btn btn-success")
                )
+        )
       )
     })
     
-    # Édition plein écran
     observeEvent(input$open_full_editor, {
       req(rv_table())
       showModal(modalDialog(
@@ -189,7 +197,6 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       removeModal()
     })
     
-    # Exportation Excel
     output$download_table <- downloadHandler(
       filename = function() paste0("mesures_cat_", Sys.Date(), ".xlsx"),
       content  = function(file) {
@@ -197,37 +204,8 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
         wb_add_worksheet(wb, "Mesures")
         wb_add_data(wb, sheet = 1, x = rv_table())
         wb_save(wb, file)
-        showNotification("✅ Fichier exporté !", type = "message")
+        showNotification("✅ Export Excel terminé", type = "message")
       }
     )
-    
-    # Stockage global
-    observeEvent(rv_table(), {
-      rv$excel_data  <- rv_table()
-      rv$excel_sheet <- input$selected_sheet
-    })
-    
-    observeEvent(rv_path(), {
-      req(rv_path())
-      wb <- tryCatch(openxlsx2::wb_load(rv_path()), error = function(e) NULL)
-      if (inherits(wb, "wbWorkbook")) {
-        rv_excel(wb)         # Stockage local dans le module si tu veux y accéder ailleurs
-        rv$fichier_excel <- wb  # Mise à jour du global pour le reste de l'app
-      } else {
-        showNotification("❌ Le fichier Excel n'a pas pu être chargé.", type = "error")
-      }
-    })
-    
-    observeEvent(rv$excel_updated, {
-      # Par exemple : recharger la feuille sélectionnée si besoin
-      wb <- rv$fichier_excel
-      sheet <- rv$excel_sheet
-      if (!is.null(wb) && sheet %in% wb_get_sheet_names(wb)) {
-        df <- tryCatch(wb_read(wb, sheet), error = function(e) NULL)
-        if (!is.null(df)) rv_table(as.data.frame(df))
-      }
-    })
-    
-    
   })
 }
