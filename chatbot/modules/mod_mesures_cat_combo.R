@@ -198,14 +198,19 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
     })
     
     output$download_table <- downloadHandler(
-      filename = function() paste0("mesures_cat_", Sys.Date(), ".xlsx"),
-      content  = function(file) {
-        wb <- wb_workbook()
-        wb_add_worksheet(wb, "Mesures")
-        wb_add_data(wb, sheet = 1, x = rv_table())
-        wb_save(wb, file)
+      filename = function() {
+        paste0("mesures_cat_", Sys.Date(), ".xlsx")
+      },
+      content = function(file) {
+        wb <- rv_excel()  # ⚡ Ici on récupère directement le wb en mémoire
+        req(inherits(wb, "wbWorkbook"))
+        
+        # ⚡ Enregistre directement le workbook que l'utilisateur manipule
+        openxlsx2::wb_save(wb, file = file, overwrite = TRUE)
+        
         showNotification("✅ Export Excel terminé", type = "message")
       }
     )
+    
   })
 }
