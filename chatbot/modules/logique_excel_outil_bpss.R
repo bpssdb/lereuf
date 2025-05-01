@@ -42,7 +42,7 @@ load_ppes_data <- function(wb, df_pp_categ, df_entrants, df_sortants, code_progr
     wb <- insert_data_to_sheet(wb, "Accueil", df_indicie[[2]], startCol = 2, startRow = 43)
     wb <- insert_data_to_sheet(wb, "Accueil", df_indicie[[6]], startCol = 3, startRow = 43)
   }
-  
+  print('ppes OK')
   return(wb)
 }
 
@@ -51,18 +51,24 @@ load_ppes_data <- function(wb, df_pp_categ, df_entrants, df_sortants, code_progr
 load_inf_dpp18 <- function(wb, df_dpp18, code_programme) {
   if (!inherits(wb, "wbWorkbook")) stop("❌ wb n'est pas un workbook valide")
   if (is.null(df_dpp18) || nrow(df_dpp18) == 0) return(wb)
-  
+  print("dpp 18 entrée")
   # Nettoyage
   wb <- insert_data_to_sheet(wb, "INF DPP 18", data.frame(), startCol = 2, startRow = 1)
   
   # Header
   header <- head(df_dpp18, 5)
   wb <- insert_data_to_sheet(wb, "INF DPP 18", header, startCol = 2, startRow = 1)
-  
+  print("DPP 18 Header")
   # Filtrage
-  df_filtered <- dplyr::filter(df_dpp18, stringr::str_detect(.data[[1]], fixed(code_programme)))
-  wb <- insert_data_to_sheet(wb, "INF DPP 18", df_filtered, startCol = 2, startRow = 6)
+
+  df_filtered <- df_dpp18 %>%
+    mutate(col1 = as.character(.[[1]])) %>%
+    filter(stringr::str_detect(col1, fixed(substr(code_programme, 1, 3)))) %>%
+    select(-col1)
   
+  #df_filtered <- dplyr::filter(df_dpp18, 
+  #                             stringr::str_detect(as.character(.data[[1]]), fixed(substr(code_programme, 1, 3))))
+  wb <- insert_data_to_sheet(wb, "INF DPP 18", df_filtered, startCol = 2, startRow = 6)
   return(wb)
 }
 
@@ -76,9 +82,15 @@ load_inf_bud45 <- function(wb, df_bud45, code_programme) {
   header <- head(df_bud45, 5)
   wb <- insert_data_to_sheet(wb, "INF BUD 45", header, startCol = 2, startRow = 1)
   
-  df_filtered <- dplyr::filter(df_bud45, stringr::str_detect(.data[[2]], fixed(code_programme)))
-  wb <- insert_data_to_sheet(wb, "INF BUD 45", df_filtered, startCol = 2, startRow = 6)
+  # Correction du filtrage
+  df_filtered <- df_bud45 %>%
+    dplyr::mutate(col2 = as.character(.[[2]])) %>%
+    dplyr::filter(stringr::str_detect(col2, fixed(substr(code_programme, 1, 3)))) %>%
+    select(-col2)
   
+  wb <- insert_data_to_sheet(wb, "INF BUD 45", df_filtered, startCol = 2, startRow = 6)
+  print("Bud 45 OK")
   return(wb)
 }
+
 
