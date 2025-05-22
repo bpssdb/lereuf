@@ -23,6 +23,8 @@ downloadModuleServer <- function(id, df, tags_data) {
         list(
           id = if (!is.null(tag$id)) tag$id else NA,
           sheet_name = if (!is.null(tag$sheet_name)) tag$sheet_name else "",
+          row = tag$row,
+          col = tag$col,
           cell_address = cell_address,
           labels = tag$labels,
           source_cells = source_cells
