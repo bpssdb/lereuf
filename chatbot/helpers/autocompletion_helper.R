@@ -1,3 +1,7 @@
+library(stringi)
+library(stringr)
+#Quelques fonctions auxiliaires sont dans llm_utils.
+
 setupBudgetExtraction <- function(input, output, session,
                                   rv, chat_history,
                                   dernier_fichier_contenu,
@@ -16,39 +20,49 @@ setupBudgetExtraction <- function(input, output, session,
     showNotification("Extraction en cours…", type = "message")
     
     future({
-      get_budget_data(user_msg, axes = isolate(rv$axes))
+      get_budget_data(user_msg)
     }) %...>% (function(budget_data) {
       if (is.null(budget_data) || nrow(budget_data) == 0) {
         showNotification("Aucune donnée détectée.", type = "warning")
         return()
       }
       
-      # 1) on stocke sans mapping CelluleCible
-      budget_data$PassageSource <- NA_character_
+      # 1) on ajoute SourcePhrase pour chaque ligne, via l'analyse du message source
+      budget_data <- attach_source_phrases(budget_data, user_msg)
+      
+      # 2) on complète les autres champs
       budget_data$Tags <- NA_character_
+      budget_data$Id <- NA_character_
       budget_data$CelluleCible <- NA_character_
+      
       donnees_extraites(budget_data)
       
       # 2) on ouvre le modal de validation
       showModal(modalDialog(
-        title    = "🗺️ Validez l’extraction budgétaire",
-        # tableau éditable (seule la colonne CelluleCible restera modifiable ensuite)
-        DT::DTOutput(ns("budget_table_mapping")),
-        footer   = tagList(
+        title = "🗺️ Validez l’extraction budgétaire",
+        size = "l", easyClose = TRUE,
+        footer = tagList(
           actionButton(ns("do_mapping_cells"), "Compléter les cellules cibles"),
+          actionButton(ns("write_to_excel"), "Écrire dans Excel"),
           modalButton("Fermer")
         ),
-        size     = "l",
-        easyClose = TRUE
+        div(style = "overflow-x: auto; max-width:100%",
+            DT::DTOutput(ns("budget_table_mapping"))
+        )
       ))
+      
+      
       
       # 3) on rend le tableau
       output$budget_table_mapping <- DT::renderDT({
         DT::datatable(
           donnees_extraites(),
-          options  = list(scrollX = TRUE),
+          options = list(
+            scrollX = TRUE
+          ),
           editable = list(target = "cell")
         )
+        
       })
       
       # 4) édition inline du tableau
@@ -67,31 +81,90 @@ setupBudgetExtraction <- function(input, output, session,
           showNotification("⚠️ Pas de tags JSON disponibles pour le mapping.", type = "error")
           return()
         }
-        mapping <- map_budget_entries(entries, tags) #C'est ici qu'est effectué le mapping
+        mapping <- map_budget_entries(entries, tags)
         if (is.null(mapping) || nrow(mapping) == 0) {
           showNotification("❌ Mapping automatique échoué.", type = "error")
           return()
         }
-        mapping_df <- as.data.frame(mapping) |>
-          dplyr::select(Axe, Description, cellule) |>
-          dplyr::rename(CelluleCible = cellule)
         
+        # on cast en data.frame et on sélectionne les 5 colonnes dont on a besoin :
+        mapping_df <- as.data.frame(mapping) %>%
+          dplyr::select(
+            Axe,
+            Description,
+            cellule,
+            tag_id,
+            tags_utilisés
+          ) %>%
+          dplyr::rename(
+            CelluleCible  = cellule,
+            TagID         = tag_id,
+            TagsUtilises  = tags_utilisés
+          )
+        
+        # on fusionne en conservant toutes les colonnes d'origine plus les 3 nouvelles
         merged <- dplyr::left_join(
-          entries |> dplyr::select(-CelluleCible),
+          entries %>% dplyr::select(-CelluleCible, -Id, -Tags),
           mapping_df,
           by = c("Axe", "Description")
         )
+        
         donnees_extraites(merged)
         
         # on met à jour le DT sans refermer le modal
         proxy <- DT::dataTableProxy(ns("budget_table_mapping"))
         DT::replaceData(proxy, merged, resetPaging = FALSE)
         
-        showNotification("✅ Cellules cibles complétées automatiquement.", type = "message")
+        showNotification("✅ Cellules cibles (et leurs tags) complétées automatiquement.", type = "message")
       })
       
-    }) %...!% (function(err) {
-      showNotification(paste("Erreur :", err$message), type = "error")
+      # ————————————————————————————————
+      # 6) bouton “Écrire dans Excel”
+      observeEvent(input$write_to_excel, {
+        req(rv$fichier_excel, donnees_extraites(), rv$imported_json$tags)
+        entries <- donnees_extraites()
+        tags    <- rv$imported_json$tags
+        
+        # on (re)construit le mapping pour avoir tag_id, sheet_name et cell_address
+        mapping <- map_budget_entries(entries, tags)
+        if (is.null(mapping) || nrow(mapping) == 0) {
+          showNotification("❌ Pas de mapping disponible pour écrire dans Excel.", type = "error")
+          return()
+        }
+        
+        wb <- rv$fichier_excel  # votre openxlsx2 workbook
+        
+        for (i in seq_len(nrow(mapping))) {
+          # on récupère l'objet tag correspondant
+          this_tag <- tags[[ mapping$tag_id[i] ]]
+          sheet     <- this_tag$sheet_name
+          addr      <- this_tag$cell_address  # ex. "D10"
+          
+          # on convertit "D10" → liste(row=10, col=4)
+          coords   <- parse_address(addr)
+          
+          # valeur à écrire : ici le montant (vous pouvez adapter)
+          value_to_write <- entries$Montant[i]
+          
+          # on écrit dans le workbook
+          wb <- openxlsx2::wb_add_data(
+            wb,
+            sheet     = sheet,
+            x         = value_to_write,
+            startRow  = coords$row,
+            startCol  = coords$col,
+            colNames  = FALSE,
+            rowNames  = FALSE
+          )
+        }
+        
+        # mettre à jour le reactiveValue et sauver en mémoire
+        rv$fichier_excel <- wb
+        rv$excel_updated <- Sys.time()
+        
+        showNotification("✅ Les montants ont été écrits dans votre Excel en mémoire.", type = "message")
+      })
+      
     })
   })
 }

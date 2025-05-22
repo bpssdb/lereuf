@@ -108,10 +108,13 @@ server <- function(input, output, session) {
     rv$axes    <- analysis$axes
     rv$context <- analysis$contexte_general
     axes_info <- if (is.data.frame(rv$axes)) {
-      paste0("- ", rv$axes$axe, ": ", rv$axes$description, collapse = "\n")
-    } else {
+      paste(apply(rv$axes, 1, function(row) paste0("- ", row["axe"], ": ", row["description"])), collapse = "\n")
+    } else if (is.list(rv$axes)) {
       paste(sapply(rv$axes, function(x) paste0("- ", x$axe, ": ", x$description)), collapse = "\n")
+    } else {
+      "Aucun axe détecté."
     }
+    
     recap <- paste0("✅ Axes détectés :\n", axes_info, "\n\nContexte : ", rv$context)
     msgs <- chat_history()
     msgs <- append(msgs, list(list(role = "assistant", content = recap)))

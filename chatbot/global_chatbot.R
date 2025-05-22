@@ -18,7 +18,6 @@ source("~/work/lereuf/chatbot/helpers/api_mistral.R")
 source("~/work/lereuf/chatbot/helpers/llm_utils.R")
 source("~/work/lereuf/chatbot/helpers/ui_helpers.R")
 source("~/work/lereuf/chatbot/helpers/server_utils.R")
-source("~/work/lereuf/chatbot/helpers/excel_analysis.R")
 source("~/work/lereuf/chatbot/helpers/autocompletion_helper.R")
 source("~/work/lereuf/chatbot/helpers/map_budget_entries.R")  
 

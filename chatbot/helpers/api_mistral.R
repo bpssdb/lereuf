@@ -156,7 +156,30 @@ analyze_labels <- function(labels) {
 # ----------------------------------------------------------
 # get_budget_data: extraction de données budgétaires via LLM
 # ----------------------------------------------------------
-get_budget_data <- function(content_text, axes = NULL) {
+get_budget_data <- function(content_text) {
+  prompt_sys <- paste(
+    "Tu es un assistant budgétaire.",
+    "Analyse le texte fourni et retourne UNIQUEMENT un tableau JSON avec les données budgétaires détectées au format :",
+    "[ {\"Axe\":..., \"Description\":..., \"Montant\":..., \"Unité\":..., \"Probabilite\":..., \"Date\":..., \"Nature\":...} ]"
+  )
+  
+  msgs <- list(
+    list(role = "system", content = prompt_sys),
+    list(role = "user", content = content_text)
+  )
+  raw <- llm_chat(msgs)
+  if (is.null(raw)) return(NULL)
+  cleaned <- clean_json_blob(raw)
+  blob <- extract_json_array(cleaned)
+  if (is.null(blob)) {
+    message("Aucune donnée budgétaire détectée.")
+    return(NULL)
+  }
+  fromJSON(blob, simplifyVector = TRUE)
+}
+
+#Ancien get_budget_data dont les axes sont capablent de sadapter
+get_budget_data2 <- function(content_text, axes = NULL) {
   if (!is.null(axes)) {
     axes_txt <- if (is.data.frame(axes)) {
       paste(glue("{axe}: {description}"), collapse = "; ")
@@ -202,6 +225,8 @@ get_budget_data <- function(content_text, axes = NULL) {
   }
   fromJSON(blob, simplifyVector = TRUE)
 }
+
+
 
 # ----------------------------------------------------------
 # select_tag_for_entry: choisit le tag Excel le plus adapté Normalement n'est pas utilisé. 
