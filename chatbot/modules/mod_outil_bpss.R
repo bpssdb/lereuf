@@ -5,9 +5,6 @@ library(DT)
 source("~/work/lereuf/chatbot/modules/logique_excel_outil_bpss.R")
 #NB : La détection des programmes est faite via un sous-string dans le nom. Il faut toujours indiquer 3 chiffres dans le programems. 
 
-
-
-
 read_xlsx_with_recovery <- function(file_path, sheet = NULL) {
   tryCatch({
     readxl::read_excel(file_path, sheet = sheet)

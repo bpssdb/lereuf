@@ -1,0 +1,121 @@
+# parse_excel_formulas_with_assignments.R
+
+library(tidyxl)
+library(openxlsx)
+library(dplyr)
+
+source("~/work/lereuf/chatbot/modules/parseur_excel/excel_formula_to_R.R")
+source("~/work/lereuf/chatbot/modules/parseur_excel/utils.R")
+
+
+
+# Fonction principale --------------------------------------------------------
+parse_excel_formulas <- function(path, emit_script = FALSE) {
+  message("[parse_excel_formulas] Chargement du fichier Excel...")
+  wb_sheets <- getSheetNames(path)
+  sheets <- setNames(
+    lapply(wb_sheets, function(sh) {
+      message(sprintf(" - Lecture de la feuille '%s'", sh))
+      read.xlsx(path, sheet = sh, colNames = FALSE)
+    }), wb_sheets
+  )
+  message("[parse_excel_formulas] Extraction des variables globales")
+  globals <- get_excel_globals(path)
+  nom_cellules <- build_named_cell_map(globals)
+  print(nom_cellules)
+  
+  
+  
+  message("[parse_excel_formulas] Extraction des cellules contenant des formules...")
+  cells_all <- xlsx_cells(path)
+  
+  form_cells <- cells_all %>% filter(!is.na(formula))
+  # Fusionner les formules multilignes en une seule ligne
+  form_cells <- form_cells %>%
+    mutate(
+      # on remplace \r ou \n (et combinaisons) par un espace
+      formula = gsub("[\r\n]+", " ", formula),
+      # on écrase les espaces multiples
+      formula = gsub("\\s+", " ", formula),
+      # on enlève eventual leading/trailing spaces
+      formula = trimws(formula)
+    )
+  
+  message(sprintf("[parse_excel_formulas] %d formules extraites.", nrow(form_cells)))
+
+  message("[parse_excel_formulas] Extraction des dépendances...")
+  form_cells <- form_cells %>%
+    mutate(
+      deps = purrr::pmap(list(formula, sheet), extract_deps)
+    )
+  
+  message("[parse_excel_formulas] Filtrage des formules contenant 'LEFT'...")
+  initial_count <- nrow(form_cells)
+  form_cells <- form_cells %>%
+    filter(!grepl("\\bLEFT\\b", formula, ignore.case = TRUE))
+  message(sprintf("[parse_excel_formulas] %d formules restantes après filtrage (supprimées: %d).", 
+                  nrow(form_cells), initial_count - nrow(form_cells)))
+  
+  message("[parse_excel_formulas] Conversion des formules Excel en code R...")
+  form_cells <- form_cells %>%
+    mutate(
+      R_code = vapply(formula, function(f) convert_formula(f, nom_cellules), character(1)),
+      row    = as.integer(sub("^[A-Z]+", "", address)),
+      col    = vapply(gsub("[0-9]+", "", address), function(x) as.integer(col2num(x)), integer(1))
+    ) %>%
+    select(sheet, address, row, col, formula, R_code)
+  
+  message("[parse_excel_formulas] Conversion terminée.")
+  
+  if (!emit_script) {
+    message("[parse_excel_formulas] Evaluation des cellules dans le bon ordre...")
+    sheets <- evaluate_cells(sheets, form_cells)
+  }
+  
+  if (emit_script) {
+    message("[parse_excel_formulas] Génération du script R...")
+    script_file <- paste0(tools::file_path_sans_ext(basename(path)), "_converted_formulas.R")
+    lines <- c(
+      "# Script généré par parse_excel_formulas()",
+      "# Charger le classeur",
+      "script <- function(rv) {",
+            "tryCatch({",
+                "wb <- rv$fichier_excel",
+
+                "if (is.null(wb) || !inherits(wb, \"wbWorkbook\")) {",
+                  "showNotification(\"❌ Le workbook Excel n'est pas valide.\", type =  \"error\")",
+                  "output$status <- renderText(\"❌ Workbook Excel manquant ou invalide.\")",
+                  "return()",
+                "}",
+      "wb_sheets <- getSheetNames(wb)",
+      "sheets <- setNames(lapply(wb_sheets, function(sh) read.xlsx(path, sheet = sh, colNames = FALSE)), wb_sheets)",
+      ""
+    )
+    
+    for (i in seq_len(nrow(form_cells))) {
+      r <- form_cells[i, ]
+      lines <- c(lines,
+                 sprintf("# %s!%s -> %s", r$sheet, r$address, r$formula),
+                 # on définit values avant chaque ligne
+                 sprintf("values <- sheets[[\"%s\"]]", r$sheet),
+                 sprintf("sheets[[\"%s\"]][%d, %d] <- %s", r$sheet, r$row, r$col, r$R_code),
+                 ""
+      )
+    }
+    
+    lines <- c(lines, 
+               "rv$fichier_excel <- wb",
+               "rv$excel_updated <- Sys.time()",
+               "}, error = function(e) {",
+               "showNotification(paste0(\"❌ Erreur du script:\", e$message), type = \"error\")",
+               "}", 
+              ")", 
+              "}"
+              )
+    
+    writeLines(lines, script_file)
+    message("Script écrit dans : ", script_file)
+  }
+  
+  message("[parse_excel_formulas] Terminé.")
+}

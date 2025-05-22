@@ -54,11 +54,12 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
     ns <- session$ns
     
     # === Réactifs internes ===
-    rv_path     <- reactiveVal(NULL)
-    rv_excel    <- reactiveVal(NULL)
-    rv_sheets   <- reactiveVal(NULL)
-    rv_table    <- reactiveVal(NULL)
-    rv_selected <- reactiveVal(NULL)
+    rv_path        <- reactiveVal(NULL)
+    rv_path_script <- reactiveVal(NULL)
+    rv_excel       <- reactiveVal(NULL)
+    rv_sheets      <- reactiveVal(NULL)
+    rv_table       <- reactiveVal(NULL)
+    rv_selected    <- reactiveVal(NULL)
     
     # === Chargement initial du fichier Excel ===
     observeEvent(input$upload_file, {
@@ -83,7 +84,11 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       } else {
         showNotification("❌ Échec du chargement du fichier.", type = "error")
       }
+      # === Création du fichier des formules sous-jacentes de l'excel ===
+      parse_excel_formulas(rv_path(), emit_script = TRUE)
+      rv_path_script(paste0(tools::file_path_sans_ext(basename(rv_path())), "_converted_formulas.R"))
     })
+
     
     # === Rendu du sélecteur de feuilles ===
     output$sheet_selector <- renderUI({
@@ -164,6 +169,7 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
         column(12,
                div(class = "d-flex",
                    actionButton(ns("open_full_editor"), "🖋️ Modifier la feuille", class = "btn btn-secondary mr-2"),
+                   actionButton(ns("apply_formulas"), "🖋 ️Appliquer les formules", class = "btn btn-secondary mr-2"),
                    downloadButton(ns("download_table"), "💾 Exporter le tableau", class = "btn btn-success")
                )
         )
@@ -185,11 +191,40 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       ))
     })
     
-    output$hot_table <- renderRHandsontable({
-      req(rv_table())
-      rhandsontable(rv_table(), useTypes = TRUE, stretchH = "all") %>%
-        hot_cols(colWidths = rep(120, ncol(rv_table())))
+    observeEvent(input$apply_formulas, {
+      path_script <- rv_path_script()
+      if (!is.null(path_script) && file.exists(path_script)) {
+        source(path_script)
+        script(rv)
+      } else {
+        showNotification("❌ Script de formules introuvable ou non généré.", type = "error")
+      }
     })
+    
+    output$hot_table <- renderRHandsontable({
+      df <- rv_table()
+      req(df)
+      
+      if (!is.data.frame(df)) {
+        showNotification("❌ Le tableau n'est pas un data.frame.", type = "error")
+        return(NULL)
+      }
+      
+      nc <- suppressWarnings(ncol(df))
+      if (is.null(nc) || is.na(nc) || nc < 1) {
+        showNotification("❌ Le tableau est vide ou mal formé.", type = "error")
+        return(NULL)
+      }
+      
+      # Corriger les noms de colonnes si besoin
+      if (is.null(names(df)) || any(is.na(names(df))) || any(names(df) == "")) {
+        names(df) <- paste0("Colonne_", seq_len(nc))
+      }
+      
+      rhandsontable(df, useTypes = TRUE, stretchH = "all") %>%
+        hot_cols(colWidths = rep(120, nc))
+    })
+    
     
     observeEvent(input$save_edits, {
       req(input$hot_table)
