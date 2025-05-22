@@ -20,6 +20,14 @@ server <- function(input, output, session) {
   # La fonction add_or_update_tags() met à jour ou ajoute un tag pour une cellule,
   # en fusionnant (via union) les nouveaux labels avec ceux déjà existants.
   add_or_update_tags <- function(r, c, new_labels, new_header_cells = NULL, new_type = NULL, new_emoji = NULL, sheet_name = rv$current_sheet, id = NULL) {
+    if (is.null(sheet_name)) {
+      sheet_name <- isolate(rv$current_sheet)  # garantit la valeur même hors réactivité
+    }
+    # Ajout du nom de la feuille aux labels s’il n’est pas déjà présent
+    if (!sheet_name %in% new_labels) {
+      new_labels <- c(new_labels, sheet_name)
+    }
+    
     if(length(rv$tags) == 0) {
       idx <- integer(0)
     } else {
