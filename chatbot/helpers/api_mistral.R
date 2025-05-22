@@ -119,7 +119,7 @@ get_mistral_response <- function(chat_history, model = NULL) {
   resp <- llm_chat(msgs, if (is.null(model)) "mistral-small-latest" else model, verbose = TRUE)
   if (is.null(resp)) {
     return(
-      "Bien pris, je t'en remercie vivement !\nMes équipes te reviennent au plus vite,\nBien à toi."
+      "Bien pris, je t'en remercie vivement ! \n Bien à toi."
     )
   }
   resp
@@ -169,6 +169,7 @@ get_budget_data <- function(content_text, axes = NULL) {
       Axe = axes[[i]]$axe,
       Description = axes[[i]]$description,
       Montant = 0,
+      Variations_emplois = +250, 
       Unité = "€",
       Probabilite = 0.0,
       Nature = ""
@@ -184,7 +185,7 @@ get_budget_data <- function(content_text, axes = NULL) {
     prompt_sys <- paste(
       "Tu es un assistant budgétaire.",
       "Analyse le texte fourni et retourne UNIQUEMENT un tableau JSON avec les données budgétaires détectées au format :",
-      "[ {\"Axe\":..., \"Description\":..., \"Montant\":..., \"Unité\":..., \"Probabilite\":..., \"Nature\":...} ]"
+      "[ {\"Axe\":..., \"Description\":..., \"Montant\":..., \"Variations_emplois\":..., \"Unité\":..., \"Probabilite\":..., \"Nature\":...} ]"
     )
   }
   msgs <- list(

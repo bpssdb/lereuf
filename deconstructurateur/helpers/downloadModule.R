@@ -10,30 +10,28 @@ downloadModuleUI <- function(id) {
 }
 
 # Partie serveur du module pour le téléchargement
-downloadModuleServer <- function(id, df, tags_data, selected_sheet) {
+downloadModuleServer <- function(id, df, tags_data) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
     json_data <- reactive({
-      req(df(), tags_data(), selected_sheet())
+      req(df(), tags_data())
       tags_export <- lapply(tags_data(), function(tag) {
-        # On s'assure que les clés "row", "col", "labels" et "header_cells" (pour les sources) existent
         if (!all(c("row", "col", "labels") %in% names(tag))) return(NULL)
-        # Calcul de l'adresse de la cellule tagguée au format Excel (ex : "A1")
         cell_address <- paste0(num_to_excel_col(tag$col), tag$row)
-        # On récupère les cellules sources (positions des headers) si elles existent
         source_cells <- if (!is.null(tag$header_cells)) tag$header_cells else character(0)
         list(
-          row = tag$row,
-          col = tag$col,
+          id = if (!is.null(tag$id)) tag$id else NA,
+          sheet_name = if (!is.null(tag$sheet_name)) tag$sheet_name else "",
           cell_address = cell_address,
           labels = tag$labels,
           source_cells = source_cells
         )
       })
+      
+      
       tags_export <- Filter(Negate(is.null), tags_export)
       export_data <- list(
-        sheet_name = selected_sheet(),
         date_export = as.character(Sys.Date()),
         tags = tags_export
       )

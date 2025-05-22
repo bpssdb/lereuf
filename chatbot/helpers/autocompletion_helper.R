@@ -24,6 +24,8 @@ setupBudgetExtraction <- function(input, output, session,
       }
       
       # 1) on stocke sans mapping CelluleCible
+      budget_data$PassageSource <- NA_character_
+      budget_data$Tags <- NA_character_
       budget_data$CelluleCible <- NA_character_
       donnees_extraites(budget_data)
       
@@ -45,11 +47,11 @@ setupBudgetExtraction <- function(input, output, session,
         DT::datatable(
           donnees_extraites(),
           options  = list(scrollX = TRUE),
-          editable = list(target = "cell", disable = list(columns = 1:6))
+          editable = list(target = "cell")
         )
       })
       
-      # 4) édition inline de CelluleCible
+      # 4) édition inline du tableau
       observeEvent(input$budget_table_mapping_cell_edit, {
         info <- input$budget_table_mapping_cell_edit
         df <- donnees_extraites()
@@ -65,7 +67,7 @@ setupBudgetExtraction <- function(input, output, session,
           showNotification("⚠️ Pas de tags JSON disponibles pour le mapping.", type = "error")
           return()
         }
-        mapping <- map_budget_entries(entries, tags)
+        mapping <- map_budget_entries(entries, tags) #C'est ici qu'est effectué le mapping
         if (is.null(mapping) || nrow(mapping) == 0) {
           showNotification("❌ Mapping automatique échoué.", type = "error")
           return()
@@ -74,7 +76,11 @@ setupBudgetExtraction <- function(input, output, session,
           dplyr::select(Axe, Description, cellule) |>
           dplyr::rename(CelluleCible = cellule)
         
-        merged <- dplyr::left_join(entries, mapping_df, by = c("Axe", "Description"))
+        merged <- dplyr::left_join(
+          entries |> dplyr::select(-CelluleCible),
+          mapping_df,
+          by = c("Axe", "Description")
+        )
         donnees_extraites(merged)
         
         # on met à jour le DT sans refermer le modal

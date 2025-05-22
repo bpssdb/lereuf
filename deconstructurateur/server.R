@@ -8,6 +8,7 @@ server <- function(input, output, session) {
     tags = list(),               # Tags définitifs (fusion des labels auto et des headers manuels)
     current_rows = NULL,
     current_cols = NULL,
+    current_sheet = NULL, 
     header_highlights = list(),  # En-têtes automatiques détectées (cellules directement au-dessus/gauche)
     manual_trigger = Sys.time(), # Déclencheur de re-rendu (pour actualiser le tableau)
     json_data = NULL,            # Pour l'export JSON
@@ -18,7 +19,7 @@ server <- function(input, output, session) {
   
   # La fonction add_or_update_tags() met à jour ou ajoute un tag pour une cellule,
   # en fusionnant (via union) les nouveaux labels avec ceux déjà existants.
-  add_or_update_tags <- function(r, c, new_labels, new_header_cells = NULL, new_type = NULL, new_emoji = NULL) {
+  add_or_update_tags <- function(r, c, new_labels, new_header_cells = NULL, new_type = NULL, new_emoji = NULL, sheet_name = rv$current_sheet, id = NULL) {
     if(length(rv$tags) == 0) {
       idx <- integer(0)
     } else {
@@ -29,6 +30,10 @@ server <- function(input, output, session) {
           return(FALSE)
         }
       }, FUN.VALUE = logical(1)))
+    }
+    
+    if (is.null(id)) {
+      id <- if (length(rv$tags) == 0) 1 else max(sapply(rv$tags, `[[`, "id"), na.rm = TRUE) + 1
     }
     
     if(length(idx) > 0) {
@@ -45,6 +50,8 @@ server <- function(input, output, session) {
                   paste(combined_labels, collapse = "; ")))
     } else {
       rv$tags <- c(rv$tags, list(list(
+        id = id, 
+        sheet_name = sheet_name,
         row = r,
         col = c,
         labels = new_labels,
@@ -153,6 +160,7 @@ server <- function(input, output, session) {
     req(input$upload_file, input$selected_sheet)
     rv$df <- readxl::read_excel(input$upload_file$datapath,
                                 sheet = input$selected_sheet, col_names = FALSE)
+    rv$current_sheet <- input$selected_sheet
   })
   
   # Mise à jour de la zone sélectionnée depuis rhandsontable
@@ -192,8 +200,8 @@ server <- function(input, output, session) {
     tag_list <- lapply(rv$tags, function(tag) {
       if(is.list(tag) && all(c("row", "col", "labels") %in% names(tag))) {
         data.frame(
-          Row = tag$row,
-          Col = tag$col,
+          ID = if (!is.null(tag$id)) tag$id else NA,
+          Sheet = if (!is.null(tag$sheet_name)) tag$sheet_name else "",
           Cell = paste0(num_to_excel_col(tag$col), tag$row),
           Labels = paste(unlist(tag$labels), collapse = "; "),
           SourceCells = if(!is.null(tag$header_cells)) paste(tag$header_cells, collapse = "; ") else "",
@@ -413,6 +421,5 @@ server <- function(input, output, session) {
   # Génération du JSON via le module de téléchargement
   jsonData <- downloadModuleServer("download1",
                                    df = reactive({ rv$df }),
-                                   tags_data = reactive({ rv$tags }),
-                                   selected_sheet = reactive({ input$selected_sheet }))
+                                   tags_data = reactive({ rv$tags }))
 }

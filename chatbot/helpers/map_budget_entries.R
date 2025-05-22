@@ -4,7 +4,7 @@ library(jsonlite)
 library(glue)
 library(purrr)
 
-# Utilise votre fonction interne llm_chat() pour interroger Mistral
+# Utilise la fonction interne llm_chat() pour interroger Mistral
 # et extract_json_array() pour repérer le JSON dans le texte renvoyé.
 map_budget_entries <- function(entries_df, tags_json, model = NULL) {
   if (nrow(entries_df) == 0 || length(tags_json) == 0) return(NULL)
