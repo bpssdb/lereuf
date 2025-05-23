@@ -7,8 +7,6 @@ library(dplyr)
 source("~/work/lereuf/chatbot/modules/parseur_excel/excel_formula_to_R.R")
 source("~/work/lereuf/chatbot/modules/parseur_excel/utils.R")
 
-
-
 # Fonction principale --------------------------------------------------------
 parse_excel_formulas <- function(path, emit_script = FALSE) {
   message("[parse_excel_formulas] Chargement du fichier Excel...")
@@ -24,25 +22,17 @@ parse_excel_formulas <- function(path, emit_script = FALSE) {
   nom_cellules <- build_named_cell_map(globals)
   print(nom_cellules)
   
-  
-  
   message("[parse_excel_formulas] Extraction des cellules contenant des formules...")
   cells_all <- xlsx_cells(path)
-  
   form_cells <- cells_all %>% filter(!is.na(formula))
-  # Fusionner les formules multilignes en une seule ligne
   form_cells <- form_cells %>%
     mutate(
-      # on remplace \r ou \n (et combinaisons) par un espace
       formula = gsub("[\r\n]+", " ", formula),
-      # on écrase les espaces multiples
       formula = gsub("\\s+", " ", formula),
-      # on enlève eventual leading/trailing spaces
       formula = trimws(formula)
     )
-  
   message(sprintf("[parse_excel_formulas] %d formules extraites.", nrow(form_cells)))
-
+  
   message("[parse_excel_formulas] Extraction des dépendances...")
   form_cells <- form_cells %>%
     mutate(
@@ -64,7 +54,6 @@ parse_excel_formulas <- function(path, emit_script = FALSE) {
       col    = vapply(gsub("[0-9]+", "", address), function(x) as.integer(col2num(x)), integer(1))
     ) %>%
     select(sheet, address, row, col, formula, R_code)
-  
   message("[parse_excel_formulas] Conversion terminée.")
   
   if (!emit_script) {
@@ -79,14 +68,15 @@ parse_excel_formulas <- function(path, emit_script = FALSE) {
       "# Script généré par parse_excel_formulas()",
       "# Charger le classeur",
       "script <- function(rv) {",
-            "tryCatch({",
-                "wb <- rv$fichier_excel",
-
-                "if (is.null(wb) || !inherits(wb, \"wbWorkbook\")) {",
-                  "showNotification(\"❌ Le workbook Excel n'est pas valide.\", type =  \"error\")",
-                  "output$status <- renderText(\"❌ Workbook Excel manquant ou invalide.\")",
-                  "return()",
-                "}",
+      "tryCatch({",
+      "path <- rv$path",  # <- ajout du path ici
+      "print(path)",
+      "wb <- rv$fichier_excel",
+      "if (is.null(wb) || !inherits(wb, \"wbWorkbook\")) {",
+      "showNotification(\"❌ Le workbook Excel n'est pas valide.\", type =  \"error\")",
+      "output$status <- renderText(\"❌ Workbook Excel manquant ou invalide.\")",
+      "return()",
+      "}",
       "wb_sheets <- getSheetNames(wb)",
       "sheets <- setNames(lapply(wb_sheets, function(sh) read.xlsx(path, sheet = sh, colNames = FALSE)), wb_sheets)",
       ""
@@ -94,11 +84,14 @@ parse_excel_formulas <- function(path, emit_script = FALSE) {
     
     for (i in seq_len(nrow(form_cells))) {
       r <- form_cells[i, ]
+      assign_line <- sprintf(
+        "tryCatch({ sheets[[\"%s\"]][%d, %d] <- %s }, error = function(e) { warning(sprintf('Erreur conversion %s!%s : %%s', e$message), call. = FALSE) })",
+        r$sheet, r$row, r$col, r$R_code, r$sheet, r$address
+      )
       lines <- c(lines,
                  sprintf("# %s!%s -> %s", r$sheet, r$address, r$formula),
-                 # on définit values avant chaque ligne
                  sprintf("values <- sheets[[\"%s\"]]", r$sheet),
-                 sprintf("sheets[[\"%s\"]][%d, %d] <- %s", r$sheet, r$row, r$col, r$R_code),
+                 assign_line,
                  ""
       )
     }
@@ -109,9 +102,9 @@ parse_excel_formulas <- function(path, emit_script = FALSE) {
                "}, error = function(e) {",
                "showNotification(paste0(\"❌ Erreur du script:\", e$message), type = \"error\")",
                "}", 
-              ")", 
-              "}"
-              )
+               ")", 
+               "}"
+    )
     
     writeLines(lines, script_file)
     message("Script écrit dans : ", script_file)

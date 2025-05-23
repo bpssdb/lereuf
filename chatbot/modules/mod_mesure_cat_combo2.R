@@ -1,205 +1,263 @@
+# mod_mesures_cat.R: Module Excel refactorisé, UI épurée et sans espace vide
+
 library(shiny)
+library(readxl)
+library(reactable)
+library(openxlsx2)
+library(rhandsontable)
 library(shinycssloaders)
-library(DT)
 
-source("logique_excel_outil_bpss.R")
-#NB : La détection des programmes est faite via un sous-string dans le nom. Il faut toujours indiquer 3 chiffres dans le programems. 
-
-
-
-read_xlsx_with_recovery <- function(file_path, sheet = NULL) {
-  tryCatch({
-    readxl::read_excel(file_path, sheet = sheet)
-  }, error = function(e) {
-    warning(paste("Erreur de lecture du fichier Excel :", e$message))
-    data.frame()
-  })
-}
-
-
-mod_outil_bpss_ui <- function(id) {
+# ============================
+# MODULE UI
+# ============================
+mod_mesures_cat_ui <- function(id) {
   ns <- NS(id)
   tagList(
-    fluidRow(
-      # Colonne de gauche (inputs et actions)
-      column(
-        width = 4,
-        wellPanel(
-          h4("📊 Paramètres & Fichiers"),
-          numericInput( ns("annee"),           "Année",          value = 2025, min = 2000, max = 2100),
-          textInput(    ns("code_ministere"),  "Code Ministère", value = "38"),
-          textInput(    ns("code_programme"),  "Code Programme", value = "150"),
-          fileInput(    ns("ppes_file"),       "PP‑E‑S (.xlsx)", accept = ".xlsx"),
-          fileInput(    ns("dpp18_file"),      "DPP 18 (.xlsx)", accept = ".xlsx"),
-          fileInput(    ns("bud45_file"),      "BUD 45 (.xlsx)", accept = ".xlsx"),
-          #fileInput(    ns("final_file"),      "Template Final", accept = ".xlsx"),
-          actionButton( ns("process_button"), "✅ Générer",      class = "btn-primary w-100"),
-          br(), br(),
-          #downloadButton(ns("download_final"),"⬇️ Télécharger",   class = "btn-success w-100"),
-          br(), br(),
-          textOutput(   ns("status"))
-        )
-      ),
-      # Colonne de droite (aperçus empilés)
-      column(
-        width = 8,
-        # 1️⃣ PP‑E‑S
-        h4("Aperçu PP‑E‑S"),
-        shinycssloaders::withSpinner(DT::DTOutput(ns("table_ppes")), type = 4),
-        hr(),
-        # 2️⃣ DPP 18
-        h4("Aperçu DPP 18"),
-        shinycssloaders::withSpinner(DT::DTOutput(ns("table_dpp18")), type = 4),
-        hr(),
-        # 3️⃣ BUD 45
-        h4("Aperçu BUD 45"),
-        shinycssloaders::withSpinner(DT::DTOutput(ns("table_bud45")), type = 4)
-      )
-    )
+    # CSS pour supprimer marges par défaut
+    tags$style(HTML(paste0(
+      "#", ns("upload_file"), " {margin-bottom:0!important; padding-bottom:0!important;}
+",
+      "#", ns("selected_sheet"), " {margin-bottom:0!important; padding-bottom:0!important;}
+",
+      "#", ns("table_container"), " {margin-top:0!important; padding-top:0!important;}
+",
+      "#", ns("buttons_container"), " {margin-top:0!important; padding-top:0!important;}"
+    ))),
+    # 1️⃣ Upload + Sélecteur côte à côte
+    fluidRow(style = "margin-bottom:0; padding-bottom:0;",
+             column(6,
+                    fileInput(ns("upload_file"),
+                              "📂 Charger un fichier Excel (.xlsx)",
+                              accept = ".xlsx",
+                              buttonLabel = "Parcourir…",
+                              placeholder = "Aucun fichier sélectionné",
+                              width = "100%"
+                    )
+             ),
+             column(6,
+                    uiOutput(ns("sheet_selector"))
+             )
+    ),
+    # 2️⃣ Tableau conditionnel
+    uiOutput(ns("table_container")),
+    # 3️⃣ Boutons conditionnels
+    uiOutput(ns("buttons_container"))
   )
 }
 
+# ============================
+# MODULE SERVER
+# ============================
 
-
-mod_outil_bpss_server <- function(id, rv) {
+mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-    #final_file_path <- reactiveVal(NULL)
     
+    # === Réactifs internes ===
+    rv_path        <- reactiveVal(NULL)
+    rv_path_script <- reactiveVal(NULL)
+    rv_excel       <- reactiveVal(NULL)
+    rv_sheets      <- reactiveVal(NULL)
+    rv_table       <- reactiveVal(NULL)
+    rv_selected    <- reactiveVal(NULL)
     
-    observeEvent(input$process_button, {
-      # 1) Validation
-      req(input$ppes_file, input$dpp18_file, input$bud45_file, rv$fichier_excel)
-      shinyjs::disable("process_button")                    # désactive bouton
-      output$status <- renderText("⚙️ Démarrage du traitement…")
+    # === Chargement initial du fichier Excel ===
+    observeEvent(input$upload_file, {
+      req(input$upload_file)
+      path <- input$upload_file$datapath
+      ext  <- tools::file_ext(input$upload_file$name)
       
-      # 2) withProgress pour donner du feedback
-      withProgress(message = "Traitement en cours", value = 0, {
-        incProgress(0.1)
-        tryCatch({
-          # ⚙️ Paramètres
-          ppes_path <- input$ppes_file$datapath
-          dpp18_path <- input$dpp18_file$datapath
-          bud45_path <- input$bud45_file$datapath
-          
-          code_ministere <- input$code_ministere
-          code_programme <- input$code_programme
-          
-          wb <- rv$fichier_excel
-          
-          #treat_excel_wb
-          
-          if (is.null(wb) || !inherits(wb, "wbWorkbook")) {
-            showNotification("❌ Le workbook Excel n'est pas valide.", type = "error")
-            output$status <- renderText("❌ Workbook Excel manquant ou invalide.")
-            return()
-          }
-          
-          # Exemple pour lire les feuilles internes
-          feuilles <- list(
-            pp_categ = paste0("MIN_", code_ministere, "_DETAIL_Prog_PP_CATEG"),
-            entrants = paste0("MIN_", code_ministere, "_DETAIL_Prog_Entrants"),
-            sortants = paste0("MIN_", code_ministere, "_DETAIL_Prog_Sortants")
-          )
-          
-          df_pp_categ <- read_xlsx_with_recovery(ppes_path, feuilles$pp_categ)
-          df_entrants <- read_xlsx_with_recovery(ppes_path, feuilles$entrants)
-          df_sortants <- read_xlsx_with_recovery(ppes_path, feuilles$sortants)
-          print("feuilles lues")
-          
-          # 🎯 Filtrage
-          filtered_pp_categ <- df_pp_categ %>% 
-            dplyr::filter(substr(as.character(nom_prog),1,3)==substr(input$code_programme,1,3))
-          print("premier filtrage")
-          filtered_entrants <- df_entrants %>% 
-            filter(substr(as.character(nom_prog), 1, 3) == code_programme)
-          print("deuxieme filtrage")
-          filtered_sortants <- df_sortants %>% 
-            filter(substr(as.character(nom_prog), 1, 3) == code_programme) 
-          print("troisieme filtrage")
-          # 📊 Ajout dans le workbook
-          wb <- insert_data_to_sheet(wb, "Données PP-E-S", filtered_pp_categ,  startCol = 3, startRow = 7)
-          wb <- insert_data_to_sheet(wb, "Données PP-E-S", filtered_entrants, startCol = 3, startRow = 113)
-          wb <- insert_data_to_sheet(wb, "Données PP-E-S", filtered_sortants, startCol = 3, startRow = 213)
-          print("Ajout dans le wb")
-          
-          df_dpp18 <- read_xlsx_with_recovery(dpp18_path) %>% 
-            filter(str_detect(.[[1]], fixed(code_programme)))
-          df_bud45 <- read_xlsx_with_recovery(bud45_path) %>% 
-            filter(str_detect(.[[1]], fixed(code_programme)))
-          
-          wb <- insert_data_to_sheet(wb, "INF DPP 18", df_dpp18, startCol = 2, startRow = 6)
-          wb <- insert_data_to_sheet(wb, "INF BUD 45", df_bud45, startCol = 2, startRow = 6)
-          
-          # 👤 Indicié dans Accueil
-          df_pp_indicie <- filtered_pp_categ %>% filter(marqueur_masse_indiciaire == "Indicié")
-          wb <- wb_add_data(wb, "Accueil", "", dims = paste0("B43:B", 43 + nrow(df_pp_indicie)))
-          wb <- wb_add_data(wb, "Accueil", "", dims = paste0("C43:C", 43 + nrow(df_pp_indicie)))
-          wb <- wb_add_data(wb, "Accueil", df_pp_indicie[[2]], start_col = 2, start_row = 43)
-          wb <- wb_add_data(wb, "Accueil", df_pp_indicie[[3]], start_col = 3, start_row = 43)
-          
-          # 📈 Calculs Excel
-          data_socle <- wb_read(wb, "I - Socle exécution n-1", col_names = FALSE)
-          data_hyp   <- wb_read(wb, "III - Hyp. salariales", col_names = FALSE)
-          
-          data_socle[, 3:5] <- lapply(data_socle[, 3:5], as.numeric)
-          data_hyp[, 5]     <- as.numeric(data_hyp[, 5])
-          data_hyp[, 7:10]  <- lapply(data_hyp[, 7:10], as.numeric)
-          
-          val_C67 <- sum(data_socle[c(34, 44, 46, 49), 3], na.rm = TRUE)
-          val_C68 <- sum(data_socle[c(35, 45, 47), 3], na.rm = TRUE)
-          val_D68 <- sum(data_socle[c(35, 45, 47), 4], na.rm = TRUE)
-          val_E68 <- sum(data_socle[c(35, 45, 47), 5], na.rm = TRUE)
-          
-          val_E40     <- sum(data_hyp[c(113, 114, 115, 116), 5], na.rm = TRUE)
-          vals_GHIJ40 <- sapply(7:10, function(col) sum(data_hyp[c(113, 114, 115, 116), col], na.rm = TRUE))
-          
-          wb <- wb_add_data(wb, "I - Socle exécution n-1", val_C67, dims = "C67")
-          wb <- wb_add_data(wb, "I - Socle exécution n-1", val_C68, dims = "C68")
-          wb <- wb_add_data(wb, "I - Socle exécution n-1", val_D68, dims = "D68")
-          wb <- wb_add_data(wb, "I - Socle exécution n-1", val_E68, dims = "E68")
-          wb <- wb_add_data(wb, "I - Socle exécution n-1", 1492, dims = "E69")
-          
-          wb <- wb_add_data(wb, "VI - Facteurs d'évolution MS", val_E40, dims = "E40")
-          lapply(seq_along(vals_GHIJ40), function(i) {
-            wb <<- wb_add_data(wb, "VI - Facteurs d'évolution MS", vals_GHIJ40[i], dims = paste0(LETTERS[7 + i - 1], "40"))
-          })
-          
-          rv$fichier_excel <- wb
-          
-          rv$excel_updated <- Sys.time()  # force un signal de changement
-          
-          output$status <- renderText("✅ Terminé, cliquez pour télécharger.")
-          showNotification("📄 Fichier complété avec succès !", type = "message")
-          
-        }, error = function(e) {
-          showNotification(paste0("❌ Erreur : ", e$message), type="error")
-          output$status <- renderText("❌ Une erreur est survenue.")
-        })
-      })
+      if (ext != "xlsx") {
+        showNotification("❌ Veuillez charger un fichier Excel (.xlsx)", type = "error")
+        return()
+      }
       
-      shinyjs::enable("process_button")
+      wb <- tryCatch(openxlsx2::wb_load(path), error = function(e) NULL)
+      if (inherits(wb, "wbWorkbook")) {
+        rv_path(path)
+        rv_excel(wb)
+        rv$fichier_excel <- wb
+        
+        sheets <- tryCatch(openxlsx2::wb_get_sheet_names(wb), error = function(e) NULL)
+        rv_sheets(sheets)
+        updateSelectInput(session, ns("selected_sheet"), choices = sheets, selected = sheets[1])
+      } else {
+        showNotification("❌ Échec du chargement du fichier.", type = "error")
+      }
+      # === Création du fichier des formules sous-jacentes de l'excel ===
+      parse_excel_formulas(rv_path(), emit_script = TRUE)
+      rv_path_script(paste0(tools::file_path_sans_ext(basename(rv_path())), "_converted_formulas.R"))
     })
     
-    # — Previews avec DT
-    output$table_ppes <- DT::renderDT({
-      req(input$ppes_file)
-      read_xlsx_with_recovery(input$ppes_file$datapath, 
-                              sheet = paste0("MIN_", input$code_ministere, "_DETAIL_Prog_PP_CATEG")) %>%
-        dplyr::filter(substr(as.character(nom_prog),1,3)==substr(input$code_programme,1,3))
-    }, options=list(pageLength=3, scrollX=TRUE))
     
-    output$table_dpp18 <- DT::renderDT({
-      req(input$dpp18_file)
-      read_xlsx_with_recovery(input$dpp18_file$datapath) %>%
-        dplyr::filter(str_detect(.[[1]], fixed(substr(input$code_programme,1,3))))
-    }, options=list(pageLength=3, scrollX=TRUE))
+    # === Rendu du sélecteur de feuilles ===
+    output$sheet_selector <- renderUI({
+      req(rv_sheets())
+      selectInput(ns("selected_sheet"), "🗂️ Choisir une feuille", choices = rv_sheets(), width = "100%")
+    })
     
-    output$table_bud45 <- DT::renderDT({
-      req(input$bud45_file)
-      read_xlsx_with_recovery(input$bud45_file$datapath) %>%
-        dplyr::filter(str_detect(.[[2]], fixed(substr(input$code_programme,1,3))))
-    }, options=list(pageLength=3, scrollX=TRUE))
+    # === Lecture de la feuille sélectionnée ===
+    observeEvent(input$selected_sheet, {
+      req(rv_excel(), input$selected_sheet)
+      print("----- CHANGEMENT DE FEUILLE -----")
+      print(input$selected_sheet)
+      df <- tryCatch(
+        #wb_read(rv_excel(), sheet = input$selected_sheet, col_names = TRUE),
+        openxlsx2::wb_to_df(rv_excel(), sheet = input$selected_sheet),
+        error = function(e) {
+          showNotification(paste("❌ Erreur lecture feuille :", e$message), type = "error")
+          NULL
+        }
+      )
+      print(head(df))             # affiche quelques lignes
+      req(df)
+      rv_selected(input$selected_sheet)
+      rv_table(as.data.frame(df))
+      rv$excel_data  <- df
+      rv$excel_sheet <- input$selected_sheet
+    })
+    
+    # === Recharge forcée si excel modifié ailleurs ===
+    observeEvent(rv$excel_updated, {
+      print("Je fais la modification")
+      wb <- rv$fichier_excel
+      req(inherits(wb, "wbWorkbook"))
+      
+      rv_excel(wb)
+      feuilles <- tryCatch(openxlsx2::wb_get_sheet_names(wb), error = function(e) NULL)
+      rv_sheets(feuilles)
+      
+      sheet <- rv_selected()
+      if (!is.null(sheet) && sheet %in% feuilles) {
+        print("je rentre ici")
+        #df <- tryCatch(wb_read(wb, sheet = sheet, col_names = TRUE), error = function(e) NULL)
+        df <- tryCatch(openxlsx2::wb_to_df(wb, sheet = sheet),error = function(e) NULL)
+        if (!is.null(df)) {
+          print("jactualise le df")
+          rv_table(as.data.frame(df))
+        }
+      }
+      
+      print("La modification est terminee")
+    })
+    
+    # === Table UI ===
+    output$table_container <- renderUI({
+      req(rv_table())
+      fluidRow(
+        column(12,
+               shinycssloaders::withSpinner(
+                 reactableOutput(ns("reactable_table")),
+                 type = 4, color = "#0055A4"
+               )
+        )
+      )
+    })
+    
+    output$reactable_table <- renderReactable({
+      df <- rv_table()
+      if (is.null(df) || !is.data.frame(df)) {
+        return(reactable(data.frame(Message = "📭 Aucune donnée à afficher ouin"), bordered = TRUE))
+      }
+      
+      if (is.null(names(df)) || any(is.na(names(df))) || any(names(df) == "")) {
+        names(df) <- paste0("Colonne_", seq_len(ncol(df)))
+      }      
+      
+      
+      reactable(
+        df,
+        searchable = TRUE, resizable = TRUE, highlight = TRUE, bordered = TRUE,
+        striped = TRUE, pagination = FALSE,
+        defaultColDef = colDef(minWidth = 100, style = list(whiteSpace = "pre-wrap")),
+        style = list(maxHeight = "70vh", overflowY = "auto")
+      )
+    })
+    
+    # === Boutons ===
+    output$buttons_container <- renderUI({
+      req(rv_table())
+      fluidRow(
+        column(12,
+               div(class = "d-flex",
+                   actionButton(ns("open_full_editor"), "🖋️ Modifier la feuille", class = "btn btn-secondary mr-2"),
+                   actionButton(ns("apply_formulas"), "🖋 ️Appliquer les formules", class = "btn btn-secondary mr-2"),
+                   downloadButton(ns("download_table"), "💾 Exporter le tableau", class = "btn btn-success")
+               )
+        )
+      )
+    })
+    
+    observeEvent(input$open_full_editor, {
+      req(rv_table())
+      showModal(modalDialog(
+        title     = "🖋️ Édition plein écran",
+        size      = "l",
+        easyClose = TRUE,
+        footer    = tagList(
+          modalButton("❌ Fermer"),
+          actionButton(ns("save_edits"), "💾 Enregistrer", class = "btn btn-primary")
+        ),
+        rHandsontableOutput(ns("hot_table"), height = "70vh"),
+        tags$script(HTML("$('.modal-dialog').css('width','95vw')"))
+      ))
+    })
+    
+    observeEvent(input$apply_formulas, {
+      path_script <- rv_path_script()
+      if (!is.null(path_script) && file.exists(path_script)) {
+        source(path_script)
+        script(rv)
+      } else {
+        showNotification("❌ Script de formules introuvable ou non généré.", type = "error")
+      }
+    })
+    
+    output$hot_table <- renderRHandsontable({
+      df <- rv_table()
+      req(df)
+      
+      if (!is.data.frame(df)) {
+        showNotification("❌ Le tableau n'est pas un data.frame.", type = "error")
+        return(NULL)
+      }
+      
+      nc <- suppressWarnings(ncol(df))
+      if (is.null(nc) || is.na(nc) || nc < 1) {
+        showNotification("❌ Le tableau est vide ou mal formé.", type = "error")
+        return(NULL)
+      }
+      
+      # Corriger les noms de colonnes si besoin
+      if (is.null(names(df)) || any(is.na(names(df))) || any(names(df) == "")) {
+        names(df) <- paste0("Colonne_", seq_len(nc))
+      }
+      
+      rhandsontable(df, useTypes = TRUE, stretchH = "all") %>%
+        hot_cols(colWidths = rep(120, nc))
+    })
+    
+    
+    observeEvent(input$save_edits, {
+      req(input$hot_table)
+      rv_table(hot_to_r(input$hot_table))
+      removeModal()
+    })
+    
+    output$download_table <- downloadHandler(
+      filename = function() {
+        paste0("sortie_budgibot_", Sys.Date(), ".xlsx")
+      },
+      content = function(file) {
+        wb <- rv_excel()  # ⚡ Ici on récupère directement le wb en mémoire
+        req(inherits(wb, "wbWorkbook"))
+        
+        # ⚡ Enregistre directement le workbook que l'utilisateur manipule
+        openxlsx2::wb_save(wb, file = file, overwrite = TRUE)
+        
+        showNotification("✅ Export Excel terminé", type = "message")
+      }
+    )
+    
   })
 }
-

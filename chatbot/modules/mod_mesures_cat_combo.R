@@ -56,7 +56,6 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
     # === Réactifs internes ===
     rv_path        <- reactiveVal(NULL)
     rv_path_script <- reactiveVal(NULL)
-    rv_excel       <- reactiveVal(NULL)
     rv_sheets      <- reactiveVal(NULL)
     rv_table       <- reactiveVal(NULL)
     rv_selected    <- reactiveVal(NULL)
@@ -75,7 +74,6 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       wb <- tryCatch(openxlsx2::wb_load(path), error = function(e) NULL)
       if (inherits(wb, "wbWorkbook")) {
         rv_path(path)
-        rv_excel(wb)
         rv$fichier_excel <- wb
         
         sheets <- tryCatch(openxlsx2::wb_get_sheet_names(wb), error = function(e) NULL)
@@ -88,7 +86,7 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       parse_excel_formulas(rv_path(), emit_script = TRUE)
       rv_path_script(paste0(tools::file_path_sans_ext(basename(rv_path())), "_converted_formulas.R"))
     })
-
+    
     
     # === Rendu du sélecteur de feuilles ===
     output$sheet_selector <- renderUI({
@@ -96,38 +94,37 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       selectInput(ns("selected_sheet"), "🗂️ Choisir une feuille", choices = rv_sheets(), width = "100%")
     })
     
-    # === Lecture de la feuille sélectionnée ===
+    # Quand l’utilisateur change de feuille
     observeEvent(input$selected_sheet, {
-      req(rv_excel(), input$selected_sheet)
-      df <- tryCatch(
-        wb_read(rv_excel(), sheet = input$selected_sheet, col_names = TRUE),
-        error = function(e) {
-          showNotification(paste("❌ Erreur lecture feuille :", e$message), type = "error")
-          NULL
-        }
-      )
-      req(df)
-      rv_selected(input$selected_sheet)
-      rv_table(as.data.frame(df))
-      rv$excel_data  <- df
-      rv$excel_sheet <- input$selected_sheet
-    })
+      req(rv$fichier_excel)
+      sheet <- input$selected_sheet
+      df    <- openxlsx2::wb_to_df(rv$fichier_excel, sheet = sheet)
+      rv_selected(sheet)
+      rv_table(df)
+    }, ignoreNULL = TRUE)
     
-    # === Recharge forcée si excel modifié ailleurs ===
+    # Quand on a écrit dans rv$fichier_excel
     observeEvent(rv$excel_updated, {
-      wb <- rv$fichier_excel
-      req(inherits(wb, "wbWorkbook"))
+      print("Jerentrela")
+      req(rv$fichier_excel, rv_selected())
+      wb    <- rv$fichier_excel
+      print(rv$fichier_excel)
       
-      rv_excel(wb)
-      feuilles <- tryCatch(openxlsx2::wb_get_sheet_names(wb), error = function(e) NULL)
-      rv_sheets(feuilles)
+      #  Mettre à jour la liste des feuilles
+      sheets <- tryCatch(openxlsx2::wb_get_sheet_names(wb), error = function(e) NULL)
+      rv_sheets(sheets)
+      # si vous voulez forcer la mise à jour du sélecteur aussi :
+      updateSelectInput(session, ns("selected_sheet"),
+                        choices = sheets,
+                        selected = rv_selected())
       
+      # Rafraîchir la table de la feuille active
       sheet <- rv_selected()
-      if (!is.null(sheet) && sheet %in% feuilles) {
-        df <- tryCatch(wb_read(wb, sheet = sheet, col_names = TRUE), error = function(e) NULL)
-        if (!is.null(df)) rv_table(as.data.frame(df))
-      }
-    })
+      df    <- openxlsx2::wb_to_df(wb, sheet = sheet)
+      print(df)
+      rv_table(df)
+    }, ignoreNULL = FALSE)
+    
     
     # === Table UI ===
     output$table_container <- renderUI({
@@ -227,17 +224,30 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
     
     
     observeEvent(input$save_edits, {
-      req(input$hot_table)
-      rv_table(hot_to_r(input$hot_table))
+      df    <- hot_to_r(input$hot_table)
+      sheet <- rv_selected()
+      
+      # 1) Mise à jour du data.frame local
+      rv_table(df)
+      
+      # 2) Injection dans le workbook global
+      wb <- rv$fichier_excel
+      wb <- openxlsx2::wb_remove_worksheet(wb, sheet)
+      wb <- openxlsx2::wb_add_worksheet(wb, sheet)
+      wb <- openxlsx2::wb_add_data(wb, sheet = sheet, x = df)
+      
+      rv$fichier_excel <- wb
+      rv$excel_updated <- Sys.time()
       removeModal()
     })
     
+    
     output$download_table <- downloadHandler(
       filename = function() {
-        paste0("mesures_cat_", Sys.Date(), ".xlsx")
+        paste0("sortie_budgibot_", Sys.Date(), ".xlsx")
       },
       content = function(file) {
-        wb <- rv_excel()  # ⚡ Ici on récupère directement le wb en mémoire
+        wb <- rv$fichier_excel # ⚡ Ici on récupère directement le wb en mémoire
         req(inherits(wb, "wbWorkbook"))
         
         # ⚡ Enregistre directement le workbook que l'utilisateur manipule

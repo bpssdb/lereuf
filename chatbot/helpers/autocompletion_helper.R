@@ -117,54 +117,48 @@ setupBudgetExtraction <- function(input, output, session,
         
         showNotification("✅ Cellules cibles (et leurs tags) complétées automatiquement.", type = "message")
       })
-      
-      # ————————————————————————————————
-      # 6) bouton “Écrire dans Excel”
-      observeEvent(input$write_to_excel, {
-        req(rv$fichier_excel, donnees_extraites(), rv$imported_json$tags)
-        entries <- donnees_extraites()
-        tags    <- rv$imported_json$tags
-        
-        # on (re)construit le mapping pour avoir tag_id, sheet_name et cell_address
-        mapping <- map_budget_entries(entries, tags)
-        if (is.null(mapping) || nrow(mapping) == 0) {
-          showNotification("❌ Pas de mapping disponible pour écrire dans Excel.", type = "error")
-          return()
-        }
-        
-        wb <- rv$fichier_excel  # votre openxlsx2 workbook
-        
-        for (i in seq_len(nrow(mapping))) {
-          # on récupère l'objet tag correspondant
-          this_tag <- tags[[ mapping$tag_id[i] ]]
-          sheet     <- this_tag$sheet_name
-          addr      <- this_tag$cell_address  # ex. "D10"
-          
-          # on convertit "D10" → liste(row=10, col=4)
-          coords   <- parse_address(addr)
-          
-          # valeur à écrire : ici le montant (vous pouvez adapter)
-          value_to_write <- entries$Montant[i]
-          
-          # on écrit dans le workbook
-          wb <- openxlsx2::wb_add_data(
-            wb,
-            sheet     = sheet,
-            x         = value_to_write,
-            startRow  = coords$row,
-            startCol  = coords$col,
-            colNames  = FALSE,
-            rowNames  = FALSE
-          )
-        }
-        
-        # mettre à jour le reactiveValue et sauver en mémoire
-        rv$fichier_excel <- wb
-        rv$excel_updated <- Sys.time()
-        
-        showNotification("✅ Les montants ont été écrits dans votre Excel en mémoire.", type = "message")
-      })
-      
     })
   })
+  # ————————————————————————————————
+  # 6) bouton “Écrire dans Excel”
+  observeEvent(input$write_to_excel, {
+    req(rv$fichier_excel, donnees_extraites(), rv$imported_json$tags)
+    print(rv$fichier_excel)
+    entries <- donnees_extraites()
+    tags    <- rv$imported_json$tags
+    
+    # on (re)construit le mapping pour avoir tag_id, sheet_name et cell_address
+    mapping <- map_budget_entries(entries, tags)
+    if (is.null(mapping) || nrow(mapping) == 0) {
+      showNotification("❌ Pas de mapping disponible pour écrire dans Excel.", type = "error")
+      return()
+    }
+    
+    wb <- rv$fichier_excel  # Assure-toi que ceci est bien défini avant la boucle
+    
+    for (i in seq_len(nrow(mapping))) {
+      this_tag <- tags[[ mapping$tag_id[i] ]]
+      sheet    <- this_tag$sheet_name
+      addr     <- this_tag$cell_address
+      
+      coords <- parse_address(addr)
+      value  <- entries$Montant[i]
+      
+      print(sprintf("Écriture dans %s!R%dC%d : %s", sheet, coords$row, coords$col, value))
+      
+      wb <-  openxlsx2::wb_add_data(
+        wb,
+        sheet    = sheet,
+        x        = value,
+        start_col = coords$col,
+        start_row = coords$row
+      )
+    }
+    
+    rv$fichier_excel <- wb  # IMPORTANT : bien remettre à jour le reactiveValue
+    rv$excel_updated <- Sys.time()
+
+    showNotification("✅ Les montants ont été écrits dans votre Excel en mémoire.", type = "message")
+  })
+  
 }

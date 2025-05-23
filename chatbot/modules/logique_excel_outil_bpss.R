@@ -1,4 +1,4 @@
-insert_data_to_sheet <- function(wb, sheet_name, data, startCol = 1, startRow = 1) {
+insert_data_to_sheet <- function(wb, sheet_name, data, startCol, startRow) {
   if (!inherits(wb, "wbWorkbook")) stop("❌ wb n'est pas un workbook openxlsx2.")
   if (!sheet_name %in% openxlsx2::wb_get_sheet_names(wb)) {
     wb <- openxlsx2::wb_add_worksheet(wb, sheet_name)
