@@ -3,9 +3,12 @@
 library(tidyxl)
 library(openxlsx)
 library(dplyr)
+library(stringr)
 
-source("~/work/lereuf/chatbot/modules/parseur_excel/excel_formula_to_R.R")
-source("~/work/lereuf/chatbot/modules/parseur_excel/utils.R")
+# Détermination du répertoire du script pour sourcer les dépendances
+script_dir <- dirname(normalizePath(sys.frame(1)$ofile, mustWork = FALSE))
+source(file.path(script_dir, "excel_formula_to_R.R"))
+source(file.path(script_dir, "utils.R"))
 
 # Fonction principale --------------------------------------------------------
 parse_excel_formulas <- function(path, emit_script = FALSE) {

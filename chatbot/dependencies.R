@@ -35,9 +35,11 @@ required_packages <- c(
   "rhandsontable", 
   "reactable", 
   "shinycssloaders", 
-  "openxlsx2", 
-  "tidyxl", 
-  "openxlsx"
+  "openxlsx2",
+  "tidyxl",
+  "openxlsx",
+  "stringr",
+  "dplyr"
 )
 
 # Install missing R packages
