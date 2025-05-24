@@ -3,6 +3,10 @@
 # Convertisseur de formules Excel en code R
 # Architecture : nettoyage → split générique (multi-char ops) → parsing récursif → codegen via table de fonctions
 
+# Packages -------------------------------------------------------------------
+# stringr est requis pour toutes les fonctions str_* utilisées dans ce module
+library(stringr)
+
 # 1) UTILITAIRES DE SPLITTING -------------------------------
 
 # Découpe f en deux parties au premier opérateur de ops au niveau racine,
@@ -334,10 +338,6 @@ fun_map <- list(
   AND    = function(args, noms_cellules = NULL) paste0("(", paste(args, collapse = " & "), ")"), 
   OR = function(args, noms_cellules = NULL) paste0("(", paste(args, collapse = " | "), ")")
 )
-
-vlookup_r <- function(x, table, col) {
-  table[x, col]
-}
 
 convert_formula <- function(form, noms_cellules = list()) {
   # Input validation
