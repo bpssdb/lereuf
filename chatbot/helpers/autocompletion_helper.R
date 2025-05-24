@@ -69,7 +69,7 @@ setupBudgetExtraction <- function(input, output, session,
       observeEvent(input$budget_table_mapping_cell_edit, {
         info <- input$budget_table_mapping_cell_edit
         df <- donnees_extraites()
-        df[info$row, info$col] <- DT::coerceValue(info$value, df[info$row, info$col])
+        df[info$row, info$col + 1] <- DT::coerceValue(info$value, df[info$row, info$col + 1])
         donnees_extraites(df)
       })
       

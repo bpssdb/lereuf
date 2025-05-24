@@ -97,8 +97,8 @@ server <- function(input, output, session) {
   observeEvent(input$budget_table_cell_edit, {
     info <- input$budget_table_cell_edit
     df   <- budget_data()
-    df[info$row, info$col] <- DT::coerceValue(
-      info$value, df[info$row, info$col]
+    df[info$row, info$col + 1] <- DT::coerceValue(
+      info$value, df[info$row, info$col + 1]
     )
     donnees_extraites(df)
     log_debug("Cellule modifiée ligne={info$row}, col={info$col}")

@@ -42,7 +42,7 @@ mod_budget_mapping_server <- function(id, mapping_data, tags_json) {
     observeEvent(input$mapping_table_cell_edit, {
       info <- input$mapping_table_cell_edit
       df   <- mapping_data()
-      df[info$row, info$col] <- DT::coerceValue(info$value, df[info$row, info$col])
+      df[info$row, info$col + 1] <- DT::coerceValue(info$value, df[info$row, info$col + 1])
       mapping_data(df)
     })
     
