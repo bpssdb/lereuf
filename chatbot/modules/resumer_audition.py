@@ -12,7 +12,7 @@ audio = whisperx.load_audio(video_path)
 result = model.transcribe(audio)
 
 # Étape 2 : Diarisation
-diaraize_model = whisperx.DiarizationPipeline(use_auth_token=None)
+diarize_model = whisperx.DiarizationPipeline(use_auth_token=None)
 segments = diarize_model(audio, min_speakers=2, max_speakers=6)
 
 # Combine transcription et diarisation
