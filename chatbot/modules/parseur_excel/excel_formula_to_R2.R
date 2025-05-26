@@ -355,23 +355,6 @@ convert_formula <- function(form, noms_cellules = list()) {
   f <- gsub("<>",    "!=", f, fixed = TRUE)
   f <- trimws(f)
   
-  # === GESTION DES ERREURS EXCEL ===
-  if (is.character(form)) {
-    # Convertir les erreurs Excel courantes
-    if (form %in% c("#REF!", "#N/A", "#VALUE!", "#DIV/0!", "#NAME?", "#NULL!", "#NUM!")) {
-      return("NA")  # ou "0" selon tes besoins
-    }
-    
-    # Nettoyer les erreurs dans les formules
-    form <- gsub("#REF!", "NA", form, fixed = TRUE)
-    form <- gsub("#N/A", "NA", form, fixed = TRUE)
-    form <- gsub("#VALUE!", "NA", form, fixed = TRUE)
-    form <- gsub("#DIV/0!", "NA", form, fixed = TRUE)
-    form <- gsub("#NAME\\?", "NA", form, fixed = TRUE)
-    form <- gsub("#NULL!", "NA", form, fixed = TRUE)
-    form <- gsub("#NUM!", "NA", form, fixed = TRUE)
-  }
-  
   # si f est entouré par une paire de (… ) parfaitement appariée,
   # on enlève ces parenthèses le temps d’analyser l’intérieur,
   # puis on les remet autour du code R généré
@@ -444,7 +427,7 @@ convert_formula <- function(form, noms_cellules = list()) {
   
   # 4) Handle literals, numbers, references
   if (!grepl("^[A-Z]+\\(", f)) {
-
+    
     # Named ranges
     if (f %in% names(noms_cellules)) {
       cell_part <- sub("^values", "", noms_cellules[[f]]$ref)
@@ -487,7 +470,7 @@ convert_formula <- function(form, noms_cellules = list()) {
   
   fname <- parts[2]
   inside <- parts[3]
-
+  
   raw_args <- split_top(inside)
   
   conv_args <- vapply(raw_args, function(x) {
@@ -521,6 +504,6 @@ convert_formula <- function(form, noms_cellules = list()) {
     # appel générique
     out <- paste0(fname, "(", paste(conv_args, collapse = ","), ")")
   }
-
+  
   return(out)
 }

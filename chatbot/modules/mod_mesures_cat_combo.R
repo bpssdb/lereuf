@@ -65,7 +65,7 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       req(input$upload_file)
       path <- input$upload_file$datapath
       ext  <- tools::file_ext(input$upload_file$name)
-      
+      print(path)
       if (ext != "xlsx") {
         showNotification("❌ Veuillez charger un fichier Excel (.xlsx)", type = "error")
         return()
@@ -74,6 +74,8 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       wb <- tryCatch(openxlsx2::wb_load(path), error = function(e) NULL)
       if (inherits(wb, "wbWorkbook")) {
         rv_path(path)
+        print("PATH")
+        print(rv_path())
         rv$fichier_excel <- wb
         
         sheets <- tryCatch(openxlsx2::wb_get_sheet_names(wb), error = function(e) NULL)
@@ -103,8 +105,46 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       rv_table(df)
     }, ignoreNULL = TRUE)
     
-    # Quand on a écrit dans rv$fichier_excel
     observeEvent(rv$excel_updated, {
+      print("=== MISE À JOUR APRÈS CALCULS ===")
+      req(rv$fichier_excel, rv_selected())
+      
+      wb <- rv$fichier_excel
+      sheet <- rv_selected()
+      
+      # 🔍 DEBUG : Vérifier le contenu du workbook
+      print("Workbook après calculs:")
+      print(wb)
+      
+      # Forcer le rechargement des données depuis le workbook
+      df <- tryCatch({
+        openxlsx2::wb_to_df(wb, sheet = sheet, colNames = FALSE)
+      }, error = function(e) {
+        print(paste("Erreur lecture workbook:", e$message))
+        return(NULL)
+      })
+      
+      if (!is.null(df)) {
+        print("=== DONNÉES RECHARGÉES ===")
+        print("Cellule D7:")
+        print(df[7, 4])
+        print("Cellule E7:")
+        print(df[7, 5])
+        print("Cellule G26:")
+        print(df[26, 7])
+        
+        # Mettre à jour l'affichage
+        rv_table(df)
+        
+        # Notification de succès
+        showNotification("✅ Tableau mis à jour avec les nouveaux calculs!", type = "message")
+      } else {
+        showNotification("❌ Erreur lors du rechargement des données", type = "error")
+      }
+    }, ignoreNULL = FALSE)
+    
+    # Quand on a écrit dans rv$fichier_excel
+    observeEvent(rv$excel_updated2, {
       print("Jerentrela")
       req(rv$fichier_excel, rv_selected())
       wb    <- rv$fichier_excel
@@ -192,7 +232,7 @@ mod_mesures_cat_server <- function(id, rv, on_analysis_summary = NULL) {
       path_script <- rv_path_script()
       if (!is.null(path_script) && file.exists(path_script)) {
         source(path_script)
-        script(rv)
+        script(rv, rv_path)
       } else {
         showNotification("❌ Script de formules introuvable ou non généré.", type = "error")
       }

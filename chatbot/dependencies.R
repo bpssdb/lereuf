@@ -39,7 +39,8 @@ required_packages <- c(
   "tidyxl",
   "openxlsx",
   "stringr",
-  "dplyr"
+  "dplyr", 
+  "tokenizers"
 )
 
 # Install missing R packages
