@@ -3,7 +3,7 @@
 # Charger la configuration globale mise à jour
 source("~/work/lereuf/chatbot/global_chatbot_v3.R")  # Version mise à jour
 source("~/work/lereuf/chatbot/ui_chatbot.R")      # UI inchangée
-source("~/work/lereuf/chatbot/server_chatbot.R")    # Serveur inchangé
+source("~/work/lereuf/chatbot/server_chatbot2.R")    # Serveur inchangé
 
 # Message de démarrage avec info version
 message(strrep("=", 50))
